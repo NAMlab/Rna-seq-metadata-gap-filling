@@ -1,0 +1,5 @@
+my_barley_input.2.part1.abundance.tsv.gz filter=lfs diff=lfs merge=lfs -text
+my_barley_input.2.part2.abundance.tsv.gz filter=lfs diff=lfs merge=lfs -text
+my_barley_input.2.part3.abundance.tsv.gz filter=lfs diff=lfs merge=lfs -text
+my_barley_input.2.part4.abundance.tsv.gz filter=lfs diff=lfs merge=lfs -text
+SraRunTable_barley.csv filter=lfs diff=lfs merge=lfs -text
