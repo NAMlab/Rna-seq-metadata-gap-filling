@@ -1,0 +1,1146 @@
+ 
+
+```{r}
+#load necessary libraries
+#loading libraries
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(umap)
+library(sva)
+library(limma)
+library(factoextra)
+library(pheatmap)
+
+
+```
+
+```{r}
+# get working directory
+getwd()
+```
+
+
+```{r}
+df <- read.delim("my_barley_input.2.part1.abundance.tsv.gz", header = TRUE, sep = "\t")
+df1 <- read.delim("my_barley_input.2.part2.abundance.tsv.gz", header = TRUE, sep = "\t")
+df2 <- read.delim("my_barley_input.2.part3.abundance.tsv.gz", header = TRUE, sep = "\t")
+df3 <- read.delim("my_barley_input.2.part4.abundance.tsv.gz", header = TRUE, sep = "\t")
+
+```
+
+
+```{r}
+# Rename the first column of each df to "gene"
+names(df)[1]   <- "gene"
+names(df1)[1]  <- "gene"
+names(df2)[1]  <- "gene"
+names( df3)[1] <- "gene"
+
+```
+
+
+```{r}
+
+library(dplyr)
+# Merge data frames by "gene" column using full_join
+df4 <- list(df, df1, df2, df3) |>
+  Reduce(function(x, y) full_join(x, y, by = "gene"), x = _)
+
+# (optional) if any duplicate sample names exist, make them unique
+colnames(df4) <- make.unique(colnames(df4))
+
+
+
+```
+
+
+```{r}
+sum(is.na(df4)) 
+
+```
+
+
+```{r}
+# extract TPM columns + gene column
+tpm_df <- df4 %>%
+  select(gene, ends_with("_tpm"))
+
+```
+
+
+```{r}
+# quick check
+dim(tpm_df)
+head(tpm_df[, 1:6])
+
+```
+
+
+```{r}
+#set row names as gene names and remove gene column
+
+rownames(tpm_df) <- tpm_df$gene
+tpm_df <- tpm_df[, -1]
+#convert to matrix
+tpm_matrix <- as.matrix(tpm_df)
+mode(tpm_matrix) <- "numeric"
+
+```
+
+
+
+```{r}
+#check dimensions
+dim(tpm_matrix)
+
+```
+
+
+```{r}
+#check first few samples
+head(tpm_matrix[, 1:6])
+head(tpm_matrix[, 1:6])
+
+
+```
+
+
+```{r}
+#remove _tpm from column names so that they match metadata
+colnames(tpm_matrix) <- gsub("_tpm$", "", colnames(tpm_matrix))
+
+
+```
+
+
+```{r}
+
+#load your metadata
+library(readxl)
+meta_raw <- read_xlsx("hordeum_vulgare_10520.(2).xlsx")
+
+
+```
+
+
+```{r}
+# what are column names
+colnames(meta_raw)
+
+
+```
+
+
+```{r}
+# i want to see how many sheets of data are in the excel file
+excel_sheets("hordeum_vulgare_10520.(2).xlsx")
+
+```
+
+
+```{r}
+#load necessary libraries before data cleaning
+library(dplyr)
+library(magrittr)  # makes sure %>% is available
+
+```
+
+
+```{r}
+#i want to read in a specific sheet from the excel file
+meta_raw <- read_xlsx("hordeum_vulgare_10520.(2).xlsx", sheet = "Sheet1")
+
+```
+
+
+```{r}
+
+#clean/standardize metadata (use your real columns)
+meta <- meta_raw %>%
+  rename(
+    sample_id = Run,     # SRR/DRR/ERR
+    tissue    = sample   # your tissue column is named sample
+  ) %>%
+  mutate(
+    sample_id = as.character(sample_id),
+    treatment = trimws(as.character(treatment)),
+    layout    = tolower(trimws(as.character(layout))),
+    tissue    = tolower(trimws(as.character(tissue)))
+  ) %>%
+  distinct(sample_id, .keep_all = TRUE)
+
+
+```
+
+
+
+
+```{r}
+# checking the data
+dim(meta)
+head(meta[, c("sample_id","treatment","tissue","layout")])
+
+
+```
+
+
+```{r}
+# keep only samples that are present in the TPM matrix, one row per sample_id
+meta_keep <- meta %>%
+  filter(sample_id %in% colnames(tpm_matrix)) %>%
+  distinct(sample_id, .keep_all = TRUE)
+
+```
+
+
+```{r}
+# order rows of metadata to match the TPM column order
+ord  <- match(colnames(tpm_matrix), meta_keep$sample_id)
+keep <- !is.na(ord)
+
+```
+
+
+```{r}
+# apply the same filter/order to both objects
+tpm_matrix   <- tpm_matrix[, keep, drop = FALSE]
+meta_aligned <- meta_keep[ord[keep], ]
+
+```
+
+
+```{r}
+# sanity checks
+ncol(tpm_matrix)            # should equal:
+nrow(meta_aligned)          # ...this
+sum(is.na(meta_aligned$sample_id))  # should be 0
+head(meta_aligned[, c("sample_id","treatment","tissue","layout")])
+
+```
+
+
+```{r}
+
+# log1p-transform and transpose -> rows = samples, cols = genes
+# RNA-seq TPM values can vary hugely — some genes have TPMs of 0.1, others 10,000+.
+#Without transforming, the few highly expressed genes dominate the analysis.
+#It stabilizes variance (so big and small expression values are comparable).
+
+log_tpm <- t(log1p(tpm_matrix))   # big object: 10096 x ~37962
+
+
+```
+
+
+```{r}
+
+# remove genes with zero variance (constant across all samples)
+# This finds genes that have no change across samples — i.e., their expression is constant everywhere.
+# Removing zero-variance genes keeps only the informative ones — genes that actually differ between samples — improving PCA/UMAP clarity and speed.
+gene_var <- apply(log_tpm, 2, var)
+sum_zero_var <- sum(gene_var == 0)         # how many genes removed?
+log_tpm_f <- log_tpm[, gene_var > 0, drop = FALSE]
+
+```
+
+
+```{r}
+#  quick checks
+ncol_before <- ncol(log_tpm)
+ncol_after  <- ncol(log_tpm_f)
+cat("genes before:", ncol_before, "\ngenes after:", ncol_after,
+    "\nzero-variance genes removed:", sum_zero_var, "\n")
+
+
+```
+
+
+```{r}
+# run PCA on log-transformed TPM
+pca_res <- prcomp(log_tpm_f, center = TRUE, scale. = TRUE)
+
+```
+
+
+```{r}
+# variance explained by first few PCs
+pc_var <- summary(pca_res)$importance[2, 1:6] * 100
+pc_var
+
+
+```
+
+
+```{r}
+# combine PCA coordinates + metadata
+
+pca_df <- data.frame(
+  PC1 = pca_res$x[, 1],
+  PC2 = pca_res$x[, 2],
+  sample_id = meta_aligned$sample_id,
+  treatment = meta_aligned$treatment,
+  tissue = meta_aligned$tissue,
+  layout = meta_aligned$layout
+)
+
+```
+
+
+```{r}
+# PCA colored by tissue
+ggplot(pca_df, aes(PC1, PC2, color = tissue)) +
+  geom_point(size = 1.4, alpha = 0.8) +
+  theme_minimal() +
+  labs(
+    title = "PCA of Barley RNA-seq (colored by tissue)",
+    x = paste0("PC1 (", round(pc_var[1], 2), "% variance)"),
+    y = paste0("PC2 (", round(pc_var[2], 2), "% variance)"),
+    color = "Tissue"
+  )
+
+## save the tissue plot
+ggsave("pca_barley_tissue_withNA.png", width = 7, height = 5, dpi = 300)
+
+```
+
+
+```{r}
+# PCA colored by tissue without NA, with custom colors
+ggplot(pca_df %>% filter(!is.na(tissue)), aes(PC1, PC2, color = tissue)) +
+  geom_point(size = 1.2, alpha = 0.8) +
+  theme_minimal() +
+  labs(
+    title = "PCA of Barley RNA-seq (colored by tissue)",
+    x = paste0("PC1 (", round(pc_var[1], 2), "% variance)"),
+    y = paste0("PC2 (", round(pc_var[2], 2), "% variance)"),
+    color = "Tissue" ) +
+  scale_color_manual(values = c(
+    "leaf"       = "#ff7f0e",  # orange
+    "root"       = "#1f77b4",  # blue
+    "shoot"      = "#228B22",  # green
+    "spike"      = "#800080",  # purple (instead of gray)
+    "stem"       = "#FF69B4",  # pink
+    "seed/grain" = "gray10",   # dark gray
+    "mixed"      = "#bcbd22"   # yellow-green
+  )) +
+  theme(
+    plot.title   = element_text(size = 14, face = "bold", hjust = 0.5),
+    legend.title = element_text(size = 11, face = "bold"),
+    legend.text  = element_text(size = 10)
+  )
+
+# save the tissue plot without NA
+ggsave("pca_barley_tissue_noNA.png", width = 7, height = 5, dpi = 300)
+
+```
+
+
+```{r}
+#check counts of samples per tissue 
+table(meta_aligned$tissue)
+
+
+```
+
+
+```{r}
+#check counts with NA 
+table(meta_aligned$tissue, useNA = "ifany")
+
+```
+
+
+```{r}
+#check counts of samples per layout
+table(meta_aligned$layout)
+
+```
+
+
+```{r}
+#check how tissues are distributed across layouts
+table(meta_aligned$tissue, meta_aligned$layout)
+
+```
+
+
+```{r}
+# #pca colored by layout
+# ggplot(pca_df, aes(PC1, PC2, color = layout)) +
+#   geom_point(size = 1.4, alpha = 0.8) +
+#   theme_minimal() +
+#   labs(
+#     title = "PCA of Barley RNA-seq (colored by layout)",
+#     x = paste0("PC1 (", round(pc_var[1], 2), "% variance)"),
+#     y = paste0("PC2 (", round(pc_var[2], 2), "% variance)"),
+#     color = "Layout"
+#   )
+
+```
+
+
+```{r}
+#pca coloured by treatment
+# PCA colored by treatment
+#paste0 is used to concatenate strings together
+ggplot(pca_df %>% filter(!is.na(treatment)), aes(PC1, PC2, color = treatment)) +
+  geom_point(size = 1.2, alpha = 0.8) +
+  theme_minimal() +
+  labs(
+    title = "PCA of Barley RNA-seq (colored by treatment)",
+    x = paste0("PC1 (", round(pc_var[1], 2), "% variance)"),
+    y = paste0("PC2 (", round(pc_var[2], 2), "% variance)"),
+    color = "Treatment"
+  )
+
+
+```
+
+
+```{r}
+#check counts of samples per treatment
+table(meta_aligned$treatment)
+
+```
+
+
+```{r}
+#check counts with NA
+table(meta_aligned$treatment, useNA = "ifany")
+
+```
+
+
+```{r}
+# focusing on main groups
+library(dplyr)
+library(ggplot2)
+
+# Define color palette
+treatment_colors <- c(
+  "control"              = "#FF7F0E",  # red-pink
+  "heat"                 = "blue",  # green
+  "drought"              = "grey5",  
+  "salt"                 = "#C77CFF",  # purple
+  "pathogen"             = "#800080",  # dark purple
+  "abiotic stress"       = "#FF69B4",  # pink
+  "biostimulant"         = "#b6cd22",  # yellow-green
+  "cold"                 = "#00BFC4",  # cyan
+  "combined(sym/bio)"    = "red",  # orange
+  "genetic modification" = "#7CAE00",  # dark green
+  "hormone treatment"    = "#619CFF",  # light blue
+  "nutrient"             = "#F564E3",  # magenta
+  "oxidative stress"     = "#00C08B",  # teal
+  "symbiotic"            = "darkblue"  # navy blue
+)
+
+# PCA colored by treatment, with layout shapes
+ggplot(pca_df %>% filter(!is.na(treatment) & !is.na(layout)),
+       aes(PC1, PC2, color = treatment, shape = layout)) +
+  geom_point(size = 1.1, alpha = 0.8) +
+  theme_minimal() +
+  labs(
+    title = "PCA of Barley RNA-seq (colored by treatment, shaped by layout)",
+    x = paste0("PC1 (", round(pc_var[1], 2), "% variance)"),
+    y = paste0("PC2 (", round(pc_var[2], 2), "% variance)"),
+    color = "Treatment",
+    shape = "Layout"
+  ) +
+  scale_color_manual(values = treatment_colors) +
+  theme(
+    plot.title   = element_text(size = 11, face = "bold", hjust = 0.2),
+    legend.title = element_text(size = 8, face = "bold"),
+    legend.text  = element_text(size = 10)
+  )
+
+```
+
+
+
+```{r}
+# focusing on main groups
+library(dplyr)
+library(ggplot2)
+
+# Define color palette for treatments
+treatment_colors <- c(
+  "control" = "#FF7F0E",          # red-pink
+  "heat" = "#00BAA3",             # green
+  "drought" = "grey5",           # grey
+  "salt" =  "#C77CFF",             # purple
+  "pathogen" = "#800080",         # dark purple
+  "abiotic stress" = "#FF00FF",   # pink
+  "biostimulant" = "#b6cd22",     # yellow-green
+  "cold" = "#00BFC4",             # cyan
+  "combined(sym/bio)" = "red",    # orange
+  "genetic modification" = "#006400", # dark green
+  "hormone treatment" = "#619CFF",    # light blue
+  "nutrient" = "#F564E3",         # magenta
+  "oxidative stress" = "#00C08E", # teal
+  "symbiotic" = "darkblue"        # navy blue
+)
+
+# PCA colored by treatment, shaped by layout
+ggplot(
+  pca_df %>% filter(!is.na(treatment) & !is.na(layout)),
+  aes(PC1, PC2, color = treatment, shape = layout)
+) +
+  geom_point(size = 1.2, alpha = 0.8) +
+  theme_minimal() +
+  labs(
+    title = "PCA of Barley RNA-seq (colored by treatment, shaped by layout)",
+    x = paste0("PC1 (", round(pc_var[1], 2), "% variance)"),
+    y = paste0("PC2 (", round(pc_var[2], 2), "% variance)"),
+    color = "Treatment",
+    shape = "Layout"
+  ) +
+  guides(
+    color = guide_legend(title = "Treatment"),
+    shape = guide_legend(title = "Layout")
+  ) +
+  scale_color_manual(values = treatment_colors) +
+  theme(
+    plot.title = element_text(size = 10, face = "bold", hjust = 0.2),
+    legend.title = element_text(size = 8, face = "bold"),
+    legend.text = element_text(size = 8)
+  )
+
+# save the treatment plot
+ggsave("pca_barley_treatment_noNA.png", width = 7, height = 5, dpi = 300)
+
+```
+
+
+```{r}
+# PCA colored by treatment with na and layout shapes with custom colors
+ggplot(
+  pca_df, aes(PC1, PC2, color = treatment, shape = layout)
+) +
+  geom_point(size = 1.2, alpha = 0.8) +
+  theme_minimal() +
+  labs(
+    title = "PCA of Barley RNA-seq (colored by treatment, shaped by layout)",
+    x = paste0("PC1 (", round(pc_var[1], 2), "% variance)"),
+    y = paste0("PC2 (", round(pc_var[2], 2), "% variance)"),
+    color = "Treatment",
+    shape = "Layout"
+  ) +
+  guides(
+    color = guide_legend(title = "Treatment"),
+    shape = guide_legend(title = "Layout")
+  ) +
+  scale_color_manual(values = treatment_colors) +
+  theme(
+    plot.title = element_text(size = 10, face = "bold", hjust = 0.2),
+    legend.title = element_text(size = 8, face = "bold"),
+    legend.text = element_text(size = 8)
+  )
+# save the treatment plot with na
+ggsave("pca_barley_treatment_withNA.png", width = 7, height = 5, dpi = 300) 
+
+
+
+```
+
+
+
+```{r}
+#check counts of samples per treatment
+table(meta_aligned$treatment)
+
+```
+
+
+```{r}
+#check counts of samples per treatment and layout
+table(meta_aligned$treatment, meta_aligned$layout)
+
+```
+
+
+```{r}
+#check counts with NA
+table(meta_aligned$treatment, useNA = "ifany")
+
+```
+
+
+```{r}
+#check counts of samples per layout
+table(meta_aligned$layout)
+
+```
+
+
+```{r}
+#check how samples are distributed across tissues and treatments
+#it means how many samples of each tissue type received each treatment
+#for example, how many root samples were treated with heat, drought, control, etc.
+table(meta_aligned$tissue, meta_aligned$treatment)
+
+```
+
+
+```{r}
+#check how samples are distributed across tissues ,treatments and layouts
+#it means how many samples of each tissue type received each treatment in each layout
+#for example, how many root samples were treated with heat, drought, control, etc. in paired-end or single-end layout
+table(meta_aligned$tissue, meta_aligned$treatment, meta_aligned$layout)
+
+```
+
+
+```{r}
+#pca coloured by developmental stage
+p_dev <- pca_df %>%
+  mutate(
+    dev_stage = meta_aligned$developmental_stage,  # or meta_aligned$dev_stage
+    layout    = meta_aligned$layout
+  ) %>%
+  filter(!is.na(dev_stage))
+
+```
+
+
+```{r}
+# PCA colored by developmental stage
+ggplot(p_dev, aes(PC1, PC2, color = dev_stage)) +
+  geom_point(size = 1.1, alpha = 0.8) +
+  theme_minimal() +
+  labs(
+    title = "PCA of Barley RNA-seq (colored by developmental stage)",
+    x = paste0("PC1 (", round(pc_var[1], 2), "% variance)"),
+    y = paste0("PC2 (", round(pc_var[2], 2), "% variance)"),
+    color = "Developmental Stage"
+  )
+# save the developmental stage plot
+ggsave("pca_barley_developmental_stage_noNA.png", width = 7,
+       height = 5, dpi = 300) 
+
+
+```
+
+
+```{r}
+# pCA colored by developmental stage including NA values
+ggplot(pca_df, aes(PC1, PC2, color = meta_aligned$developmental_stage, shape = meta_aligned$layout)) +
+  geom_point(size = 1.2, alpha = 0.8) +
+  theme_minimal() +
+  labs(
+    title = "PCA of Barley RNA-seq (colored by developmental stage)",
+    x = paste0("PC1 (", round(pc_var[1], 2),"% variance)"),
+    y = paste0("PC2 (", round(pc_var[2], 2),"% variance)"),
+    color = "Developmental Stage",
+    shape = "Layout"
+  ) +
+  scale_color_manual(values = c(
+    "germination" = "#1f77b4",  # blue
+    "vegetative" = "#ff7f0e",  # orange
+    "transition" = "#2ca02c",# green
+    "reproductive" = "#9467bd" # purple
+  )) +
+  theme(
+    plot.title = element_text(size = 11, face = "bold", hjust = 0.2),
+    legend.title = element_text(size = 8, face = "bold"),
+    legend.text = element_text(size = 8)
+  ) 
+# save the developmental stage plot with NA   
+ggsave("pca_barley_developmental_stage_withNA.png", width = 7,
+       height = 5, dpi = 300) 
+  
+
+```
+
+```{r}
+#check counts of samples per developmental stage
+table(meta_aligned$developmental_stage)
+
+```
+
+```{r}
+#check how developmental stages are distributed across layouts  
+table(meta_aligned$developmental_stage, meta_aligned$layout)
+
+```
+
+
+```{r}
+#check counts with NA
+table(meta_aligned$developmental_stage, useNA = "ifany")
+
+```
+
+
+```{r}
+
+# run UMAP on log-transformed TPM
+library(umap)
+
+umap_res <- umap(log_tpm_f)   
+
+
+```
+
+
+```{r}
+# extract top 50 pCs for UMAP input
+pca_for_umap <- pca_res$x[, 1:50]
+
+
+```
+
+
+```{r}
+library(umap)
+
+umap_res <- umap(pca_for_umap)
+umap_df <- as.data.frame(umap_res$layout)
+colnames(umap_df) <- c("UMAP1", "UMAP2")
+
+
+```
+
+
+
+
+```{r}
+library(dplyr)
+library(umap)
+library(ggplot2)
+
+# keep only samples with known tissue
+keep_tissue <- !is.na(meta_aligned$tissue)
+
+pcs_tissue   <- pca_res$x[keep_tissue, 1:50]    # 50 PCs for these samples
+meta_tissue  <- meta_aligned[keep_tissue, ]
+
+set.seed(123)
+umap_tissue_res <- umap(
+  pcs_tissue,
+  n_neighbors = 50,   # a bit larger, good for big datasets
+  min_dist    = 0.2   # slightly tighter clusters
+)
+
+umap_tissue_df <- data.frame(
+  UMAP1  = umap_tissue_res$layout[, 1],
+  UMAP2  = umap_tissue_res$layout[, 2],
+  tissue = meta_tissue$tissue,
+  layout = meta_tissue$layout
+)
+
+ggplot(umap_tissue_df, aes(UMAP1, UMAP2, color = tissue, shape = layout)) +
+  geom_point(size = 1.1, alpha = 0.8) +
+  theme_minimal() +
+  labs(
+    title = "UMAP of Barley RNA-seq (colored by tissue)",
+    color = "Tissue",
+    shape = "Layout"
+  )
+# save the tissue plot
+ggsave("umap_barley_tissue.png", width = 7, height = 5, dpi = 300)  
+
+
+```
+
+
+```{r}
+ggplot(umap_tissue_df, aes(UMAP1, UMAP2, color = tissue, shape = layout)) +
+  geom_point(size = 1.1, alpha = 0.8) +
+  theme_minimal() +
+  labs(
+    title = "UMAP of Barley RNA-seq (colored by tissue)",
+    color = "Tissue",
+    shape = "Layout"
+  ) +
+  scale_color_manual(values = c(
+    "leaf"       = "#ff7f0e",  # orange
+    "root"       = "#1f77b4",  # blue
+    "shoot"      = "#228B22",  # green
+    "spike"      = "#800080",  # purple (instead of gray)
+    "stem"       = "#FF69B4",  # pink 
+    "seed/grain" = "gray10",   # dark gray
+    "mixed"      = "#bcbd22"   # yellow-green
+  )) +
+  theme(
+    plot.title   = element_text(size = 14, face = "bold", hjust = 0.5),
+    legend.title = element_text(size = 11, face = "bold"),
+    legend.text  = element_text(size = 10)
+  )
+
+# save the tissue plot 
+ggsave("umap_barley_tissue_.png", width = 7, height = 5, dpi = 300)
+
+```
+
+```{r}
+library(dplyr)
+library(umap)
+library(ggplot2)
+
+# keep all samples (including those with NA tissue)
+pcs_all   <- pca_res$x[, 1:50]    # 50 PCs for all samples
+meta_all  <- meta_aligned
+
+# run UMAP on all samples
+set.seed(123)
+umap_all_res <- umap(
+  pcs_all,
+  n_neighbors = 50,   # a bit larger, good for big datasets
+  min_dist    = 0.2   # slightly tighter clusters
+)
+
+# create UMAP data frame with tissue info (including NA)
+umap_all_df <- data.frame(
+  UMAP1     = umap_all_res$layout[, 1],
+  UMAP2     = umap_all_res$layout[, 2],
+  tissue    = meta_all$tissue,
+  layout    = meta_all$layout
+)
+# UMAP colored by tissue (including NA) 
+ggplot(umap_all_df, aes(UMAP1, UMAP2, color = tissue, shape = layout)) +
+  geom_point(size = 1.1, alpha = 0.8) +
+  theme_minimal() +
+  labs(
+    title = "UMAP of Barley RNA-seq (colored by tissue)",
+    color = "Tissue",
+    shape = "Layout"
+  )
+
+# save the tissue plot with NA
+#ggsave("umap_barley_tissue_withNA.png", width = 7, height = 5, dpi = 300)
+
+
+```
+
+
+
+
+```{r}
+#check counts with NA
+table(meta_all$tissue, useNA = "ifany")
+```
+
+
+
+```{r}
+# check counts of samples per layout
+table(meta_tissue$layout)
+
+```
+
+```{r}
+# check how tissues are distributed across layouts  
+table(meta_tissue$tissue, meta_tissue$layout)
+
+```
+
+
+
+
+```{r}
+library(dplyr)
+library(umap)
+library(ggplot2)
+
+#keep all samples (including those with NA treatment)
+pcs_all   <- pca_res$x[, 1:50]    # 50 PCs for all samples
+meta_all  <- meta_aligned
+# run UMAP on all samples
+set.seed(123)
+umap_all_res <- umap(
+  pcs_all,
+  n_neighbors = 50,   # a bit larger, good for big datasets
+  min_dist    = 0.2   # slightly tighter clusters
+)
+# create UMAP data frame with treatment info (including NA)
+umap_all_df <- data.frame(
+  UMAP1     = umap_all_res$layout[, 1],
+  UMAP2     = umap_all_res$layout[, 2],
+  treatment = meta_all$treatment,
+  layout    = meta_all$layout
+)
+# UMAP colored by treatment (including NA)
+ggplot(umap_all_df, aes(UMAP1, UMAP2, color = treatment, shape = layout)) +
+  geom_point(size = 1.1, alpha = 0.8) +
+  theme_minimal() +
+  labs(
+    title = "UMAP of Barley RNA-seq (colored by treatment)",
+    color = "Treatment",
+    shape = "Layout"
+  ) 
+
+# save the treatment plot with NA
+#ggsave("umap_barley_treatment_withNA.png", width = 7, height = 5, dpi = 300)
+
+
+
+
+```
+
+
+```{r}
+#check counts with NA
+table(meta_all$treatment, useNA = "ifany")
+
+```
+
+
+
+```{r}
+#this umap treated without NA values
+# umap colored by treatment with custom colors
+
+ggplot(umap_treat_df, aes(UMAP1, UMAP2, color = treatment, shape = layout)) +
+  geom_point(size = 1.1, alpha
+ = 0.8) +
+  theme_minimal() +
+  labs(
+    title = "UMAP of Barley RNA-seq (colored by treatment)",
+    color = "Treatment",
+    shape = "Layout"
+  ) +
+  scale_color_manual(values = treatment_colors) +
+  theme(
+    plot.title   = element_text(size = 11, face = "bold", hjust = 0.2),
+    legend.title = element_text(size = 8, face = "bold"),
+    legend.text  = element_text(size = 8)
+  )
+
+# save the treatment plot
+#ggsave("umap_barley_treatment_.png", width = 7, height = 5, dpi = 300)
+
+```
+
+
+
+
+```{r}
+# check counts of samples per treatment
+table(meta_treat$treatment)
+
+```
+
+
+
+```{r}
+# check counts of samples per layout
+table(meta_treat$layout)
+
+```
+
+
+
+```{r}
+# check how treatments are distributed across layouts
+table(meta_treat$treatment, meta_treat$layout)
+
+```
+
+
+
+```{r}
+#check how samples are distributed across tissues and treatments
+table(meta_treat$tissue, meta_treat$treatment)
+
+```
+
+
+
+```{r}
+#check how samples are distributed across tissues ,treatments and layouts
+table(meta_treat$tissue, meta_treat$treatment, meta_treat$layout)
+
+```
+
+
+
+
+
+```{r}
+library(dplyr)
+library(umap)
+library(ggplot2)
+
+# keep all samples (including those with NA developmental stage)
+pcs_all   <- pca_res$x[, 1:50]    # 50 PCs
+meta_all  <- meta_aligned
+# run UMAP on all samples
+set.seed(123)
+umap_all_res <- umap(
+  pcs_all,
+  n_neighbors = 50,   # a bit larger, good for big datasets
+  min_dist    = 0.2   # slightly tighter clusters
+)
+# create UMAP data frame with developmental stage info (including NA)
+umap_all_df <- data.frame(
+  UMAP1        = umap_all_res$layout[, 1],
+  UMAP2        = umap_all_res$layout[, 2],
+  dev_stage    = meta_all$developmental_stage,
+  layout       = meta_all$layout
+)
+# UMAP colored by developmental stage (including NA)
+ggplot(umap_all_df, aes(UMAP1, UMAP2, color = dev_stage, shape = layout)) +
+  geom_point(size = 1.2, alpha = 0.8) +
+  theme_minimal() +
+  labs(
+    title = "UMAP of Barley RNA-seq (colored by developmental stage)",
+    color = "Developmental Stage",
+    shape = "Layout"
+  ) 
+
+
+# save the developmental stage plot with NA
+#ggsave("umap_barley_developmental_stage_withNA.png", width = 7,height = 5, dpi = 300) 
+
+
+```
+
+
+
+
+```{r}
+# this is developmental stage without NA values
+#umap colored by developmental stage with custom colors
+
+
+ggplot(umap_dev_df, aes(UMAP1, UMAP2, color= dev_stage, shape = layout)) +
+  geom_point(size = 1.2, alpha = 0.8) +
+  theme_minimal() +
+  labs(
+    title = "UMAP of Barley RNA-seq (colored by developmental stage)",
+    color = "Developmental Stage",
+    shape = "Layout"
+  ) +
+   scale_color_manual(values = c(
+    "germination" = "#1f77b4",  # blue
+    "vegetative" = "#ff7f0e",  # orange
+    "transition" = "#2ca02c",# green
+    "reproductive" = "#9467bd" # purple
+  )) +
+  theme(
+    plot.title   = element_text(size = 11, face = "bold", hjust = 0.2),
+    legend.title = element_text(size = 8, face = "bold"),
+    legend.text  = element_text(size = 8)
+  )
+# save the developmental stage plot
+ggsave("umap_barley_developmental_stage_.png", width = 7,
+       height = 5, dpi = 300)
+
+```
+
+
+
+
+```{r}
+# check counts of samples per developmental stage
+table(meta_dev$developmental_stage)
+
+```
+
+
+```{r}
+# check counts of samples per layout
+table(meta_dev$layout)
+
+```
+
+
+
+```{r}
+# check how developmental stages are distributed across layouts
+table(meta_dev$developmental_stage, meta_dev$layout)
+
+```
+
+
+```{r}
+#check how samples are distributed across tissues and developmental stages
+table(meta_dev$tissue, meta_dev$developmental_stage)
+
+```
+
+
+```{r}
+# #check how samples are distributed across tissues ,treatments,developmental stages and layouts
+# table(meta_dev$tissue, meta_dev$treatment, meta_dev$developmental_stage, meta_dev$layout)
+
+```
+
+
+
+
+```{r}
+#count how many meta dev samples are in total
+nrow(meta_dev)
+nrow(meta_treat)
+nrow(meta_tissue)
+
+```
+
+
+```{r}
+
+
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
