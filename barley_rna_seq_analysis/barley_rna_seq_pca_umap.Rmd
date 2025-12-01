@@ -22,10 +22,10 @@ getwd()
 
 
 ```{r}
-df <- read.delim("my_barley_input.2.part1.abundance.tsv.gz", header = TRUE, sep = "\t")
-df1 <- read.delim("my_barley_input.2.part2.abundance.tsv.gz", header = TRUE, sep = "\t")
-df2 <- read.delim("my_barley_input.2.part3.abundance.tsv.gz", header = TRUE, sep = "\t")
-df3 <- read.delim("my_barley_input.2.part4.abundance.tsv.gz", header = TRUE, sep = "\t")
+df <- read.delim("../barley_rna_seq_data/my_barley_input.2.part1.abundance.tsv.gz", header = TRUE, sep = "\t")
+df1 <- read.delim("../barley_rna_seq_data/my_barley_input.2.part2.abundance.tsv.gz", header = TRUE, sep = "\t")
+df2 <- read.delim("../barley_rna_seq_data/my_barley_input.2.part3.abundance.tsv.gz", header = TRUE, sep = "\t")
+df3 <- read.delim("../barley_rna_seq_data/my_barley_input.2.part4.abundance.tsv.gz", header = TRUE, sep = "\t")
 
 ```
 
@@ -118,7 +118,7 @@ colnames(tpm_matrix) <- gsub("_tpm$", "", colnames(tpm_matrix))
 
 #load your metadata
 library(readxl)
-meta_raw <- read_xlsx("hordeum_vulgare_10520.(2).xlsx")
+meta_raw <- read_xlsx("../barley_rna_seq_data/hordeum_vulgare_10520.xlsx")
 
 
 ```
@@ -149,7 +149,7 @@ library(magrittr)  # makes sure %>% is available
 
 ```{r}
 #i want to read in a specific sheet from the excel file
-meta_raw <- read_xlsx("hordeum_vulgare_10520.(2).xlsx", sheet = "Sheet1")
+meta_raw <- read_xlsx("../barley_rna_seq_data/hordeum_vulgare_10520.xlsx", sheet = "Sheet1")
 
 ```
 
@@ -615,8 +615,8 @@ ggplot(p_dev, aes(PC1, PC2, color = dev_stage)) +
     color = "Developmental Stage"
   )
 # save the developmental stage plot
-ggsave("pca_barley_developmental_stage_noNA.png", width = 7,
-       height = 5, dpi = 300) 
+# ggsave("figures/pca_barley_developmental_stage_noNA.png", width = 7,
+#        height = 5, dpi = 300) 
 
 
 ```
