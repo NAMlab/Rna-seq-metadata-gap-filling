@@ -1,0 +1,562 @@
+
+```{r}
+#load libraries
+df <- read.delim("my_barley_input.2.part1.abundance.tsv", header = TRUE, sep = "\t")
+```
+
+```{r}
+# to see the data
+print(df)
+```
+
+
+```{r}
+#loading some necessary libraries
+#install.packages(c("dplyr", "tidyr", "ggplot2"))
+#install.packages("umap")
+#install.packages(c("factoextra", "pheatmap"))
+
+```
+
+
+```{r}
+#loading libraries
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(umap)
+library(sva)
+library(limma)
+library(factoextra)
+library(pheatmap)
+
+```
+
+
+```{r}
+#only keep TPM values because:
+#est_counts = raw counts, not comparable across samples.
+#eff_length = a model parameter, not gene expression.
+#TPM = normalized expression → comparable across samples.
+
+#extracting tpm matrix
+tpm_df <- df %>%
+  select(target_id, ends_with("_tpm"))
+
+```
+
+
+```{r}
+# set rownames as gene IDs
+gene_ids <- tpm_df$target_id
+tpm_mat <- as.matrix(tpm_df[ , -1])   # drop target_id column
+rownames(tpm_mat) <- gene_ids
+
+```
+
+
+```{r}
+# check dimensions
+dim(tpm_mat)
+```
+
+
+```{r}
+# check first few samples and genes
+tpm_mat[1:5, 1:5]
+
+```
+
+
+
+```{r}
+# Remove "_tpm" from column names so they match metadata IDs
+
+colnames(tpm_mat) <- sub("_tpm$", "", colnames(tpm_mat))
+                         
+```
+
+
+```{r}
+
+# Load your metadata
+library(readxl)
+meta_raw <- read_xlsx("Hordeum_vulgare_10520..xlsx")
+
+```
+
+
+```{r}
+# what are column names
+colnames(meta_raw)
+
+```
+
+
+```{r}
+# Standardize column names (important ones only)
+meta <- meta_raw %>%
+  rename(
+    sample_id = Run,
+    treatment = treatment   
+  ) %>%
+  mutate(
+    sample_id = as.character(sample_id),
+    treatment = as.character(treatment)
+  )
+
+```
+
+
+```{r}
+#Keep only samples(runID's) that exist in both metadata and expression data (tsv file)
+meta_keep <- meta %>%
+  filter(sample_id %in% colnames(tpm_mat)) %>%
+  distinct(sample_id, .keep_all = TRUE)
+```
+
+
+```{r}
+#Order metadata to match matrix columns
+ord <- match(colnames(tpm_mat), meta_keep$sample_id)
+```
+
+
+```{r}
+
+head(ord) #(these are the run id's which matches my first batch of samples 2000)
+
+```
+
+
+```{r}
+
+# drop any non-matching entries and build meta_aligned
+keep <- !is.na(ord)
+tpm_mat      <- tpm_mat[, keep, drop = FALSE]
+meta_aligned <- meta_keep[ord[keep], ]
+
+```
+ 
+
+ 
+ 
+```{r}
+# sanity check to see the data looks reasonable and consistant
+#dim(tpm_mat)
+#nrow(meta_aligned)  
+#sum(is.na(meta_aligned$sample_id)) 
+#head(meta_aligned[, c("sample_id","treatment","layout")])
+
+```
+
+
+```{r}
+# make sure layout is lowercase for consistency
+
+meta_aligned$layout <- tolower(meta_aligned$layout)
+
+```
+
+
+```{r}
+# pca
+#log transform tpm values (log1p makes log(1+x))
+log_tpm <- t(log1p(tpm_mat))   # transpose so rows = samples, cols = genes
+
+# remove genes (columns) with zero variance 
+# This means some genes have zero variance — for example, a gene that has the same TPM in all samples or is all zeros.
+# When scale.=TRUE, PCA tries to divide by each gene’s standard deviation, and dividing by zero triggers this error.
+
+var_genes <- apply(log_tpm, 2, var)
+log_tpm_filtered <- log_tpm[, var_genes > 0, drop = FALSE]
+
+
+```
+
+
+```{r}
+# run pca
+pca_res <- prcomp(log_tpm_filtered, center = TRUE, scale. = TRUE)
+
+```
+
+
+```{r}
+# % variance for PC1/PC2
+pc_var <- summary(pca_res)$importance[2, 1:2] * 100
+
+# Data frame for ggplot
+pca_df <- data.frame(
+  PC1 = pca_res$x[, 1],
+  PC2 = pca_res$x[, 2],
+  sample_id = meta_aligned$sample_id,
+  treatment = meta_aligned$treatment,
+  layout = meta_aligned$layout
+)
+
+library(ggplot2)
+ggplot(pca_df, aes(PC1, PC2, color = treatment, shape = layout)) +
+  geom_point(size = 2, alpha = 0.8) +
+  theme_minimal() +
+  labs(
+    title = "PCA of Barley RNA-seq (TPM, log1p, filtered)",
+    x = paste0("PC1 (", round(pc_var[1], 2), "% variance)"),
+    y = paste0("PC2 (", round(pc_var[2], 2), "% variance)"),
+    color = "Treatment", shape = "Layout"
+  )
+```
+
+
+```{r}
+#making treatnent column into groups
+library(dplyr)
+pca_df <- pca_df %>%
+  mutate(treatment_group = case_when(
+    grepl("mock|control|normal", treatment, ignore.case = TRUE) ~ "Control",
+    grepl("heat|temperature",     treatment, ignore.case = TRUE) ~ "Heat",
+    grepl("drought|water|osmotic",treatment, ignore.case = TRUE) ~ "Drought/Osmotic",
+    grepl("salt|NaCl",            treatment, ignore.case = TRUE) ~ "Salt",
+    grepl("cold|chill",           treatment, ignore.case = TRUE) ~ "Cold",
+    grepl("pathogen|fung|bacter|inoculat|blumeria|bipolaris|serendip", treatment, ignore.case = TRUE) ~ "Pathogen",
+    grepl("\\bSA\\b|salicylic",   treatment, ignore.case = TRUE) ~ "SA",
+    grepl("\\bABA\\b|abscisic",   treatment, ignore.case = TRUE) ~ "ABA",
+    TRUE ~ "Other"
+  ))
+```
+
+
+```{r}
+# Plot PCA with grouped treatments
+ggplot(pca_df, aes(PC1, PC2, color = treatment_group, shape = layout)) +
+  geom_point(size = 1.8, alpha = 0.8) +
+  theme_minimal() +
+  labs(title = "PCA by grouped treatments",
+       color = "Treatment group", shape = "Layout")
+```
+
+
+```{r}
+# Check treatment group counts
+table(pca_df$treatment_group)
+
+```
+
+
+```{r}
+# Check layout counts
+table(pca_df$layout)
+
+```
+
+
+```{r}
+#focussing on biologically interesting groups
+library(dplyr)
+p_focus <- pca_df %>%
+  filter(treatment_group %in% c("Control","Heat","Drought/Osmotic","Salt","Pathogen"))
+
+ggplot(p_focus, aes(PC1, PC2, color=treatment_group, shape=layout)) +
+  geom_point(size=1.8, alpha=0.8) +
+  theme_minimal() +
+  labs(title="main treatment groups",
+       color="Treatment group", shape="Layout")
+```
+
+
+```{r}
+# Check counts again
+table(p_focus$treatment_group)
+
+```
+
+
+```{r}
+# Check layout counts again
+table(p_focus$layout)
+
+```
+
+
+```{r}
+# Fix tissue assignment
+pca_df$tissue <- meta_aligned$sample
+
+#Add a proper tissue column to your main metadata
+ meta_raw <- meta_raw %>%
+   rename(tissue = sample)
+
+```
+
+
+```{r}
+# pca by tissue
+library(ggplot2)
+
+ggplot(pca_df, aes(PC1, PC2, color = tissue)) +
+  geom_point(size = 1.6, alpha = 0.8) +
+  theme_minimal() +
+  labs(
+    title = "PCA by tissue",
+    color = "tissue (sample type)"
+  )
+
+```
+
+
+```{r}
+# Remove "NA" tissue entries for cleaner plot
+pca_df_noNA <- pca_df %>%
+  filter(!is.na(tissue) & tissue != "NA")
+
+```
+
+
+```{r}
+# Plot PCA without NA samples
+library(ggplot2)
+ggplot(pca_df_noNA, aes(PC1, PC2, color = tissue)) +
+  geom_point(size = 1.6, alpha = 0.8) +
+  theme_minimal() +
+  labs(
+    title = "PCA by tissue, without NA",
+    x = "PC1",
+    y = "PC2",
+    color = "tissue (sample type)"
+  )
+
+```
+```{r}
+# check the varience explained by PC1 and PC2 in tissue plot
+pc_var <- summary(pca_res)$importance[2, 1:2] * 100
+pc_var
+
+
+```
+
+```{r}
+# check tissue counts
+table(pca_df$tissue)
+```
+
+
+```{r}
+
+# Define a clear, contrasting color palette for your main groups
+treatment_colors <- c(
+  "Control" = "#E41A1C",        # red
+  "Heat" = "#377EB8",           # blue
+  "Drought/Osmotic" = "#4DAF4A",# green
+  "Salt" = "#984EA3",           # purple
+  "Pathogen" = "#FF7F00"        # orange
+)
+
+ggplot(p_focus, aes(PC1, PC2, color = treatment_group, shape = layout)) +
+  geom_point(size = 2, alpha = 0.8) +
+  scale_color_manual(values = treatment_colors) +  
+  theme_minimal() +
+  labs(
+    title = "PCA – main treatment groups",
+    color = "Treatment group",
+    shape = "Layout"
+  ) +
+  theme(
+    plot.title = element_text(face = "bold", size = 13),
+    legend.position = "right",
+    legend.text = element_text(size = 9)
+  )
+
+
+```
+
+
+```{r}
+#check counts again
+table(p_focus$treatment_group)
+table(p_focus$layout)
+```
+
+
+```{r}
+# PCA summary
+#summary(pca_res)
+# Calculate variance explained
+
+pca_var <- pca_res$sdev^2
+
+# Percentage of total variance for each PC
+pca_var_percent <- pca_var / sum(pca_var) * 100
+
+# Show first few
+head(pca_var_percent)
+
+```
+
+
+```{r}
+# Load library
+library(umap)
+```
+
+
+```{r}
+# Run UMAP
+umap_res <- umap(log_tpm_filtered)
+```
+
+
+
+```{r}
+#check dimensions
+dim(log_tpm_filtered)
+
+```
+
+
+
+```{r}
+
+# UMAP
+umap_df <- data.frame(
+  UMAP1 = umap_res$layout[,1],
+  UMAP2 = umap_res$layout[,2],
+  treatment = meta_aligned$treatment,
+  tissue = meta_aligned$sample,   # use correct column name
+  layout = meta_aligned$layout
+)
+
+```
+
+
+
+```{r}
+# by tissue
+
+ggplot(umap_df, aes(UMAP1, UMAP2, color = tissue)) +
+  geom_point(size = 2, alpha = 0.8) +
+  theme_minimal() +
+  labs(
+    title = "UMAP by tissue",
+    color = "tissue (sample type)"
+  )
+
+
+```
+
+
+```{r}
+# Remove "NA" tissue entries for cleaner plot
+umap_df_noNA <- umap_df %>%
+  filter(!is.na(tissue) & tissue != "NA")
+```
+
+
+```{r}
+# Plot UMAP without NA samples
+ggplot(umap_df_noNA, aes(UMAP1, UMAP2, color = tissue)) +
+  geom_point(size = 1.6, alpha = 0.8) +
+  theme_minimal() +
+  labs(
+    title = "UMAP by tissue, without NA",
+    color = "tissue (sample type)"
+  )
+```
+
+
+
+```{r}
+# # Plot UMAP without NA samples with clear contrasting colors
+# ggplot(umap_df_noNA, aes(UMAP1, UMAP2, color = tissue)) +
+#   geom_point(size = 2, alpha = 0.8) +
+#   theme_minimal() +
+#   labs(
+#     title = "UMAP of Barley RNA-seq (colored by tissue, NA removed)",
+#     x = "UMAP1",
+#     y = "UMAP2",
+#     color = "Tissue (sample type)"
+#   ) +
+#   theme(
+#     plot.title = element_text(face = "bold", size = 13),
+#     legend.position = "right",
+#     legend.text = element_text(size = 9)
+#   )
+
+
+
+```
+
+
+```{r}
+# check tissue counts
+table(umap_df$tissue)
+```
+
+
+```{r}
+# by treatment
+library(dplyr)
+
+# create a compact treatment_group (reuse the same rules you used for PCA)
+tl <- tolower(meta_aligned$treatment)
+meta_aligned$treatment_group <- case_when(
+  grepl("control|mock|normal|untreated|non-diseased", tl) ~ "Control",
+  grepl("salt|nacl|salinity", tl)                         ~ "Salt",
+  grepl("heat|high temp", tl)                             ~ "Heat",
+  grepl("drought|osmotic|mannitol|peg", tl)               ~ "Drought/Osmotic",
+  grepl("pathogen|fung|bacter|virus|blumeria|bipolaris|fusarium|serendipita|rust", tl) ~ "Pathogen",
+  TRUE ~ "Other"
+)
+
+umap_df$treatment_group <- meta_aligned$treatment_group
+
+ggplot(umap_df, aes(UMAP1, UMAP2, color = treatment_group, shape = layout)) +
+  geom_point(size = 1.8, alpha = 0.8) +
+  theme_minimal() +
+  labs(title = "UMAP – grouped treatments", color = "Treatment group", shape = "Layout")
+
+```
+
+
+
+```{r}
+# only main treatment groups
+umap_focus <- umap_df %>%
+  filter(treatment_group %in% c("Control","Heat","Drought/Osmotic","Salt","Pathogen"))
+
+ggplot(umap_focus, aes(UMAP1, UMAP2, color=treatment_group, shape=layout)) +
+  geom_point(size=1.8, alpha=0.8) +
+  theme_minimal() +
+  labs(title="UMAP – Focus on main treatment groups",
+       color="Treatment group", shape="Layout")
+
+```
+
+
+```{r}
+# is it wihout na?
+table(umap_focus$treatment_group)
+table(umap_focus$layout)
+
+```
+
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
