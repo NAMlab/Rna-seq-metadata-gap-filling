@@ -28,8 +28,16 @@ germinating seed,germinating embryo,germinating stage = germination
 1,24,32 days after pollination,8 days after flowering ,anthesis,booting stage,early milk stage,filling stage,flowering stage,heading stage,mature,pre flowering, waddington stage = reproductive
 double ridge = transition
 tillering,seedling stage,axillary shoot stage,leaf producton, = vegetative
+like this i have did for developmental stage
+
+in this file i have made some pivot tables by subcategorizing the samples (tissue,treatment,developmental stage) so that we will know what samples are in the metadata and how many counts they consist.
+
+Sheet1: this is the main metadata sheet
+sheet6: in this i have what are the tissue samples and its counts
+sheet3: this is the subcategorized tissue sheet
+sheet10: this is the sucategorized treatment sheet
+sheet12: this is the subcategorized developmental sheet
 
 
 
 
-Sheet1: 
