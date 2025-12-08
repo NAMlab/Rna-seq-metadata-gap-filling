@@ -982,6 +982,8 @@ ggplot(umap_tissue_df, aes(UMAP1, UMAP2, color = tissue, shape = layout)) +
 
 
 ```{r}
+
+# umap colored by tissue with custom colors
 ggplot(umap_tissue_df, aes(UMAP1, UMAP2, color = tissue, shape = layout)) +
   geom_point(size = 1.1, alpha = 0.8) +
   theme_minimal() +
@@ -1142,9 +1144,31 @@ table(meta_all$treatment, useNA = "ifany")
 #this umap treated without NA values
 # umap colored by treatment with custom colors
 
-ggplot(umap_treat_df, aes(UMAP1, UMAP2, color = treatment, shape = layout)) +
-  geom_point(size = 1.1, alpha
- = 0.8) +
+# focusing on main groups
+library(dplyr)
+library(ggplot2)
+
+# Define color palette for treatments
+treatment_colors <- c(
+  "control"              = "#FF7F0E",  # red-pink
+  "heat"                 = "blue",  # green
+  "drought"              = "grey5",  
+  "salt"                 = "#C77CFF",  # purple
+  "pathogen"             = "#800080",  # dark purple
+  "abiotic stress"       = "#FF69B4",  # pink
+  "biostimulant"         = "#b6cd22",  # yellow-green
+  "cold"                 = "#00BFC4",  # cyan
+  "combined(sym/bio)"    = "red",  # orange
+  "genetic modification" = "#7CAE00",  # dark green
+  "hormone treatment"    = "#619CFF",  # light blue
+  "nutrient"             = "#F564E3",  # magenta
+  "oxidative stress"     = "#00C08B",  # teal
+  "symbiotic"            = "darkblue"  # navy blue
+)
+# UMAP colored by treatment, with layout shapes
+ggplot(umap_all_df %>% filter(!is.na(treatment) & !is.na(layout)),
+       aes(UMAP1, UMAP2, color = treatment, shape = layout)) +
+  geom_point(size = 1.1, alpha = 0.8) +
   theme_minimal() +
   labs(
     title = "UMAP of Barley RNA-seq (colored by treatment)",
@@ -1158,8 +1182,6 @@ ggplot(umap_treat_df, aes(UMAP1, UMAP2, color = treatment, shape = layout)) +
     legend.text  = element_text(size = 8)
   )
 
-# save the treatment plot
-#ggsave("umap_barley_treatment_.png", width = 7, height = 5, dpi = 300)
 
 ```
 
@@ -1167,9 +1189,10 @@ ggplot(umap_treat_df, aes(UMAP1, UMAP2, color = treatment, shape = layout)) +
 
 
 
+
 ```{r}
-# check counts of samples per treatment
-table(meta_treat$treatment)
+# check how layouts are distributed across treatments
+table(meta_all$layout, meta_all$treatment)
 
 ```
 
@@ -1178,16 +1201,8 @@ table(meta_treat$treatment)
 
 ```{r}
 # check counts of samples per layout
-table(meta_treat$layout)
+table(meta_all$layout)
 
-```
-
-
-
-
-```{r}
-# check how treatments are distributed across layouts
-table(meta_treat$treatment, meta_treat$layout)
 
 ```
 
@@ -1197,7 +1212,7 @@ table(meta_treat$treatment, meta_treat$layout)
 
 ```{r}
 #check how samples are distributed across tissues and treatments
-table(meta_treat$tissue, meta_treat$treatment)
+table(meta_all$tissue, meta_all$treatment)
 
 ```
 
@@ -1206,7 +1221,7 @@ table(meta_treat$tissue, meta_treat$treatment)
 
 ```{r}
 #check how samples are distributed across tissues ,treatments and layouts
-table(meta_treat$tissue, meta_treat$treatment, meta_treat$layout)
+table(meta_all$tissue, meta_all$treatment, meta_all$layout) 
 
 ```
 
@@ -1259,32 +1274,20 @@ ggplot(umap_all_df, aes(UMAP1, UMAP2, color = dev_stage, shape = layout)) +
 
 
 ```{r}
-# this is developmental stage without NA values
-#umap colored by developmental stage with custom colors
 
 
-ggplot(umap_dev_df, aes(UMAP1, UMAP2, color= dev_stage, shape = layout)) +
-  geom_point(size = 1.2, alpha = 0.8) +
+# UMAP colored by developmental stage including NA values
+
+ggplot(umap_all_df,
+       aes(UMAP1, UMAP2, color = dev_stage, shape = layout)) +
+  geom_point(size = 1.1, alpha = 0.8) +
   theme_minimal() +
   labs(
-    title = "UMAP of Barley RNA-seq (colored by developmental stage)",
+    title = "UMAP of Barley RNA-seq (colored by developmental stage, WITH NA)",
     color = "Developmental Stage",
     shape = "Layout"
-  ) +
-   scale_color_manual(values = c(
-    "germination" = "#1f77b4",  # blue
-    "vegetative" = "#ff7f0e",  # orange
-    "transition" = "#2ca02c",# green
-    "reproductive" = "#9467bd" # purple
-  )) +
-  theme(
-    plot.title   = element_text(size = 11, face = "bold", hjust = 0.2),
-    legend.title = element_text(size = 8, face = "bold"),
-    legend.text  = element_text(size = 8)
-  )
-# save the developmental stage plot
-#ggsave("umap_barley_developmental_stage_.png", width = 7,
-#       height = 5, dpi = 300)
+  ) 
+
 
 ```
 
@@ -1292,8 +1295,48 @@ ggplot(umap_dev_df, aes(UMAP1, UMAP2, color= dev_stage, shape = layout)) +
 
 
 ```{r}
-# check counts of samples per developmental stage
-table(meta_dev$developmental_stage)
+library(dplyr)
+library(ggplot2)
+
+# define colors for stages
+dev_colors <- c(
+  "germination"  = "#F8766D",
+  "vegetative"   = "#7CAE00",
+  "transition"   = "#00BFC4",
+  "reproductive" = "#C77CFF"
+)
+
+ggplot(
+  umap_dev_df %>% 
+    filter(!is.na(dev_stage) & !is.na(layout)),
+  aes(UMAP1, UMAP2, color = dev_stage, shape = layout)
+) +
+  geom_point(size = 1.1, alpha = 0.8) +
+  theme_minimal() +
+  labs(
+    title = "UMAP of Barley RNA-seq (colored by developmental stage)",
+    color = "Developmental Stage",
+    shape = "Layout"
+  ) +
+  scale_color_manual(values = dev_colors) +
+  theme(
+    plot.title  = element_text(size = 11, face = "bold", hjust = 0.2),
+    legend.title = element_text(size = 8, face = "bold"),
+    legend.text  = element_text(size = 8)
+  )
+# ggsave("umap_barley_developmental_stage.png", width = 7, height = 5, dpi = 300)
+
+
+
+```
+
+
+
+
+
+```{r}
+# check counts of samples per developmental stage with NA
+table(meta_all$developmental_stage, useNA = "ifany")
 
 ```
 
@@ -1344,7 +1387,7 @@ table(meta_dev$tissue, meta_dev$developmental_stage)
 ```{r}
 #count how many meta dev samples are in total
 nrow(meta_dev)
-nrow(meta_treat)
+nrow(meta_all %>% filter(!is.na(treatment)))
 nrow(meta_tissue)
 
 ```
