@@ -1528,13 +1528,6 @@ overall_percent
 ```
 
 
-```{r}
-# visualize variance explained by each factor
-library(ggplot2)
-
-
-
-```
 
 
 ```{r}
@@ -1574,21 +1567,124 @@ ggplot(var_summary, aes(x = factor, y = percent, fill = factor)) +
   ) 
 
 # save the variance explained barplot
-ggsave("anova_variance_explained_barley.png", width = 7, height = 5, dpi = 300)
+#ggsave("anova_variance_explained_barley.png", width = 7, height = 5, dpi = 300)
 
 
 
 ```
 
 
+
 ```{r}
+
+# performing post-hoc test to see which group drive that varience in each factor like tissue , treatment , developmental stage and sra study
+
+library(dplyr)
+
+#build a data frame 
+
+pca_df <- data.frame(
+  PC1 = pca_res$x[,1],
+  PC2 = pca_res$x[,2],
+  tissue = meta_aligned$tissue,
+  treatment = meta_aligned$treatment,
+  dev_stage = meta_aligned$developmental_stage,
+  sra_study = meta_aligned$`SRA Study`
+)
+
+
+
+```
+
+
+
+
+```{r}
+#run anova for each factor
+#anova for tissue
+
+anova_tissue <- aov(PC1 ~ tissue, data = pca_df)
+summary(anova_tissue)
+
+
 ```
 
 
 ```{r}
+
+#anova for treatment
+anova_treat <- aov(PC1 ~ treatment, data = pca_df)
+summary(anova_treat)
+
+
 ```
 
 
 ```{r}
+#anova for developmental stage
+anova_dev <- aov(PC1 ~ dev_stage, data = pca_df)
+summary(anova_dev)
+
+
+```
+
+
+```{r}
+#anova for sra study
+anova_sra <- aov(PC1 ~ sra_study, data = pca_df)
+summary(anova_sra)
+
+```
+
+
+```{r}
+#post-hoc test for tissue
+
+tukey_tissue <- TukeyHSD(anova_tissue)
+tukey_tissue
+
+```
+
+
+```{r}
+#post-hoc test for treatment
+tukey_treat <- TukeyHSD(anova_treat)
+tukey_treat
+
+
+```
+
+
+
+
+
+```{r}
+#post-hoc test for developmental stage
+tukey_dev <- TukeyHSD(anova_dev)
+tukey_dev
+
+
+```
+
+
+
+
+
+```{r}
+#post-hoc test for sra study
+tukey_sra <- TukeyHSD(anova_sra)
+tukey_sra
+
+
+```
+
+
+
+
+```{r}
+
+
+
+
 ```
 
