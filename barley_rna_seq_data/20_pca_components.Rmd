@@ -1,0 +1,861 @@
+
+```{r}
+
+getwd()
+
+
+```
+
+
+
+
+```{r}
+#set working directory
+setwd("C:/Users/yarram/Documents/Rna-seq-metadata-gap-filling/barley_rna_seq_data")
+
+```
+
+
+
+
+
+
+
+```{r}
+#load necessary libraries
+#loading libraries
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(umap)
+library(sva)
+library(limma)
+library(factoextra)
+library(pheatmap)
+
+```
+
+
+
+
+
+
+
+
+```{r}
+# read in the four parts of the  data
+df <- read.delim("../barley_rna_seq_data/my_barley_input.2.part1.abundance.tsv.gz", header = TRUE, sep = "\t")
+df1 <- read.delim("../barley_rna_seq_data/my_barley_input.2.part2.abundance.tsv.gz", header = TRUE, sep = "\t")
+df2 <- read.delim("../barley_rna_seq_data/my_barley_input.2.part3.abundance.tsv.gz", header = TRUE, sep = "\t")
+df3 <- read.delim("../barley_rna_seq_data/my_barley_input.2.part4.abundance.tsv.gz", header = TRUE, sep = "\t")
+
+
+```
+
+
+
+
+
+
+
+
+
+```{r}
+# Rename the first column of each df to "gene"
+names(df)[1]   <- "gene"
+names(df1)[1]  <- "gene"
+names(df2)[1]  <- "gene"
+names( df3)[1] <- "gene"
+
+
+```
+
+
+
+
+
+
+
+
+```{r}
+
+library(dplyr)
+# Merge data frames by "gene" column using full_join
+df4 <- list(df, df1, df2, df3) |>
+  Reduce(function(x, y) full_join(x, y, by = "gene"), x = _)
+
+# (optional) if any duplicate sample names exist, make them unique
+colnames(df4) <- make.unique(colnames(df4))
+
+
+
+```
+
+
+
+
+
+
+
+
+```{r}
+
+sum(is.na(df4)) 
+
+
+```
+
+
+
+
+
+
+
+```{r}
+# extract TPM columns + gene column
+tpm_df <- df4 %>%
+  select(gene, ends_with("_tpm"))
+
+
+```
+
+
+
+
+
+
+
+```{r}
+# quick check
+dim(tpm_df)
+head(tpm_df[, 1:6])
+
+
+```
+
+
+
+
+
+
+
+
+```{r}
+#set row names as gene names and remove gene column
+
+rownames(tpm_df) <- tpm_df$gene
+tpm_df <- tpm_df[, -1]
+#convert to matrix
+tpm_matrix <- as.matrix(tpm_df)
+mode(tpm_matrix) <- "numeric"
+
+
+```
+
+
+
+
+
+
+
+
+```{r}
+
+#check dimensions
+dim(tpm_matrix)
+
+```
+
+
+
+
+
+
+
+```{r}
+#check first few samples
+head(tpm_matrix[, 1:6])
+head(tpm_matrix[, 1:6])
+
+
+```
+
+
+
+
+
+
+
+```{r}
+
+#remove _tpm from column names so that they match metadata
+colnames(tpm_matrix) <- gsub("_tpm$", "", colnames(tpm_matrix))
+
+
+```
+
+
+
+
+
+
+
+```{r}
+#load your metadata
+library(readxl)
+meta_raw <- read_xlsx("hordeum_vulgare_10520.xlsx")
+
+```
+
+
+
+
+
+
+```{r}
+# what are column names
+colnames(meta_raw)
+
+
+```
+
+
+
+
+
+```{r}
+
+# i want to see how many sheets of data are in the excel file
+excel_sheets("hordeum_vulgare_10520.xlsx")
+
+
+```
+
+
+
+
+
+```{r}
+#load necessary libraries before data cleaning
+library(dplyr)
+library(magrittr)  # makes sure %>% is available
+
+
+```
+
+
+
+
+
+
+
+```{r}
+#i want to read in a specific sheet from the excel file
+meta_raw <- read_xlsx("hordeum_vulgare_10520.xlsx", sheet = "Sheet1")
+
+
+```
+
+
+
+
+
+
+
+```{r}
+#clean/standardize metadata (use your real columns)
+meta <- meta_raw %>%
+  rename(
+    sample_id = Run,     # SRR/DRR/ERR
+    tissue    = sample   # your tissue column is named sample
+  ) %>%
+  mutate(
+    sample_id = as.character(sample_id),
+    treatment = trimws(as.character(treatment)),
+    layout    = tolower(trimws(as.character(layout))),
+    tissue    = tolower(trimws(as.character(tissue)))
+  ) %>%
+  distinct(sample_id, .keep_all = TRUE)
+
+
+
+```
+
+
+
+
+
+
+
+```{r}
+# checking the data
+dim(meta)
+head(meta[, c("sample_id","treatment","tissue","layout")])
+
+
+```
+
+
+
+
+
+
+
+
+```{r}
+# keep only samples that are present in the TPM matrix, one row per sample_id
+meta_keep <- meta %>%
+  filter(sample_id %in% colnames(tpm_matrix)) %>%
+  distinct(sample_id, .keep_all = TRUE)
+
+
+```
+
+
+
+
+
+
+
+```{r}
+# order rows of metadata to match the TPM column order
+ord  <- match(colnames(tpm_matrix), meta_keep$sample_id)
+keep <- !is.na(ord)
+
+
+```
+
+
+
+
+
+
+
+```{r}
+# apply the same filter/order to both objects
+tpm_matrix   <- tpm_matrix[, keep, drop = FALSE]
+meta_aligned <- meta_keep[ord[keep], ]
+
+
+```
+
+
+
+
+
+
+
+```{r}
+# sanity checks
+ncol(tpm_matrix)            # should equal:
+nrow(meta_aligned)          # ...this
+sum(is.na(meta_aligned$sample_id))  # should be 0
+head(meta_aligned[, c("sample_id","treatment","tissue","layout")])
+
+
+```
+
+
+
+
+
+
+
+
+```{r}
+# log1p-transform and transpose -> rows = samples, cols = genes
+# RNA-seq TPM values can vary hugely — some genes have TPMs of 0.1, others 10,000+.
+#Without transforming, the few highly expressed genes dominate the analysis.
+#It stabilizes variance (so big and small expression values are comparable).
+
+log_tpm <- t(log1p(tpm_matrix))   # big object: 10096 x ~37962
+
+
+```
+
+
+
+
+
+
+
+
+```{r}
+# remove genes with zero variance (constant across all samples)
+# This finds genes that have no change across samples — i.e., their expression is constant everywhere.
+# Removing zero-variance genes keeps only the informative ones — genes that actually differ between samples — improving PCA/UMAP clarity and speed.
+gene_var <- apply(log_tpm, 2, var)
+sum_zero_var <- sum(gene_var == 0)         # how many genes removed?
+log_tpm_f <- log_tpm[, gene_var > 0, drop = FALSE]
+
+
+```
+
+
+
+
+
+
+
+
+
+```{r}
+#  quick checks
+ncol_before <- ncol(log_tpm)
+ncol_after  <- ncol(log_tpm_f)
+cat("genes before:", ncol_before, "\ngenes after:", ncol_after,
+    "\nzero-variance genes removed:", sum_zero_var, "\n")
+
+
+```
+
+
+
+
+
+
+
+```{r}
+# run PCA on log-transformed TPM
+pca_res <- prcomp(log_tpm_f, center = TRUE, scale. = TRUE)
+
+
+```
+
+
+
+
+
+
+
+```{r}
+# variance explained by first few PCs
+pc_var <- summary(pca_res)$importance[2, 1:6] * 100
+pc_var
+
+
+```
+
+
+
+
+
+```{r}
+library(dplyr)
+
+# Clean metadata
+# in this step, i created new columns for sra_study and tissue 
+
+meta2 <- meta_aligned %>%
+  mutate(
+    sra_study = `SRA Study`,
+    tissue = as.character(tissue)
+  )
+
+
+
+```
+
+
+
+
+
+
+```{r}
+# Keep only samples with known tissue + known study
+
+keep_known <- !is.na(meta2$tissue) & meta2$tissue != "" &
+              !is.na(meta2$sra_study) & meta2$sra_study != ""
+
+meta_known <- meta2[keep_known, , drop = FALSE]
+
+
+```
+
+
+
+
+
+
+
+```{r}
+# Features: first 20 PCs
+# in this step, I extracted the first 20 principal components (PCs) from the PCA results for samples with known tissue labels.
+# These PCs will be used as features for training a machine learning model to predict tissue types.
+# y_all contains the corresponding tissue labels for these samples.
+
+X20_all <- as.data.frame(pca_res$x[keep_known, 1:20, drop = FALSE])
+y_all   <- factor(meta_known$tissue)
+
+
+```
+
+
+
+
+
+
+
+```{r}
+# REMOVE "mixed" from training/evaluation dataset
+# In this step, I filtered out samples labeled as "mixed" tissue from both the feature set (X20_all) and the labels (y_all).
+# This ensures that the model is trained and evaluated only on samples with specific tissue types, improving classification accuracy.
+# The resulting X20 and y variables contain only non-mixed tissue samples.
+
+
+keep_nomixed <- y_all != "mixed"
+X20 <- X20_all[keep_nomixed, , drop = FALSE]
+y   <- droplevels(y_all[keep_nomixed])
+meta_nomixed <- meta_known[keep_nomixed, , drop = FALSE]
+
+
+```
+
+
+
+
+
+
+
+```{r}
+# Sanity checks
+dim(X20)                       # samples x 20
+table(y)                       # tissue counts (no mixed)
+length(unique(meta_nomixed$sra_study))  # number of studies
+
+
+```
+
+
+
+
+
+
+
+```{r}
+# Split data into training and test sets based on SRA studies
+# In this step, I split the dataset into training and test sets based on unique SRA studies.
+# This ensures that samples from the same study do not appear in both sets, preventing data leakage and providing a more realistic evaluation of model performance.
+# Approximately 20% of the studies were randomly selected for the test set, while the remaining 80% were used for training.
+# why am saying the 20% of studies? because samples from the same study may be more similar to each other than to samples from different studies.
+# By splitting based on studies, we ensure that the model is tested on truly independent data, providing a better assessment of its generalization ability.
+# This approach is particularly important in biological datasets where batch effects and study-specific biases can influence results.
+#x_train, y_train: training features and labels
+#x_test, y_test: test features and labels
+# This split allows for robust model training and evaluation.
+
+set.seed(123)
+
+studies <- unique(meta_nomixed$sra_study)
+test_studies <- sample(studies, size = round(0.2 * length(studies)))
+train_studies <- setdiff(studies, test_studies)
+
+train_idx <- meta_nomixed$sra_study %in% train_studies
+test_idx  <- meta_nomixed$sra_study %in% test_studies
+
+X_train <- X20[train_idx, , drop = FALSE]
+y_train <- y[train_idx]
+
+X_test  <- X20[test_idx, , drop = FALSE]
+y_test  <- y[test_idx]
+
+dim(X_train); dim(X_test)
+length(unique(meta_nomixed$sra_study[train_idx]))
+length(unique(meta_nomixed$sra_study[test_idx]))
+```
+
+
+
+# i splitted known samples for training and testing based on SRA study so that no overlap of studies in training and testing
+
+#total known samples are 5365 from 183 studies
+#Training: 4636 samples and 20 pcs were used as features
+#Testing:   729 samples and 20 pcs were used as features
+# Training set has 146 studies and test set has 37 studies  
+# total studies are 183 which are unique studies in the metadata and same studies appear in the 4636 samples
+# 183 studies are unique studies each study may have multiple samples
+
+
+
+
+
+
+
+
+
+```{r}
+
+# Train random forest on first 20 PCs
+# In this step, I trained a random forest classifier using the first 20 principal components (PCs) as features to predict tissue types.
+# The model was trained on the training set (X_train, y_train) with 500 trees.
+# Random forests are robust to overfitting and can handle complex relationships in the data, making them suitable for this multi-class classification task.
+# The trained model (rf20) can then be used to predict tissue types on unseen data (test set) and evaluate its performance. 
+# This approach leverages(holds) the dimensionality reduction from PCA while utilizing the strengths of random forests for classification.
+# This step is crucial for building a predictive model that can generalize well to new samples based on their gene expression profiles summarized by the PCs.
+#importance = TRUE argument allows us to assess which features (PCs) are most influential in the classification decisions made by the model.
+
+
+# Train random forest model
+
+library(randomForest)
+library(caret)
+
+set.seed(123)
+
+rf20 <- randomForest(
+  x = X_train,
+  y = y_train,
+  ntree = 500,
+  importance = TRUE
+)
+
+
+# Evaluate on test set
+# In this step, I evaluated the performance of the trained random forest model (rf20) on the independent test set (X_test, y_test).
+# Predictions were made using the model, and a confusion matrix was generated to assess classification accuracy across different tissue types.
+# The confusion matrix provides insights into how well the model performed, highlighting areas of strength and potential misclassifications.
+# This evaluation is crucial for understanding the model's generalization ability to unseen data and identifying any tissue types that may require further attention or improvement in classification.
+# The results from this evaluation inform future model refinement and validation efforts.
+# pred_test contains the predicted tissue labels for the test set samples.
+# cm20 contains the confusion matrix summarizing the model's performance.
+#accuracy, sensitivity, specificity, and other metrics can be derived from cm20 to quantify model performance.
+# This step is essential for validating the effectiveness of the random forest classifier in predicting tissue types based on the PCA-reduced features.
+#kappa statistic from the confusion matrix provides a measure of agreement between predicted and true labels, accounting for chance agreement,means it helps to understand how well the model is performing beyond random guessing.
+
+
+
+pred_test <- predict(rf20, X_test)
+cm20 <- confusionMatrix(pred_test, y_test)
+cm20
+
+
+
+```
+
+
+
+
+
+#kappa value is 0.7699 means the model is performing well beyond random guessing.
+# the accuracy of the model is 0.8272 means the model correctly predicts the tissue type for approximately 82.72% of the samples in the test set.
+
+
+
+
+
+
+
+```{r}
+
+# Probabilities per tissue 
+# In this step, I obtained the predicted probabilities for each tissue type for the samples in the test set using the trained random forest model (rf20).
+# The predict function with type = "prob" returns a matrix where each row corresponds to a test sample and each column corresponds to a tissue type.
+# These probabilities indicate the model's confidence in assigning each sample to each tissue class.
+# The resulting prob_test20 object allows for a more nuanced interpretation of the model's predictions, as it provides insights into the likelihood of each tissue type rather than just the most likely class.
+
+prob_test20 <- predict(rf20, X_test, type = "prob")
+head(prob_test20)
+
+
+```
+
+
+
+
+
+```{r}
+#10 fold cross validation on training set to estimate performance
+# Cross-validation on training set to estimate performance
+# In this step, I implemented a 10-fold cross-validation procedure on the training set to estimate the performance of the random forest model in a robust manner.
+# The cross-validation was designed to ensure that samples from the same SRA study were kept together
+# in either the training or validation fold, preventing data leakage and providing a more realistic assessment of model generalization.
+# For each fold, the model was trained on 9/10 of the data and validated on the remaining 1/10, with accuracy and kappa statistics recorded for each iteration.
+# This approach allows for a comprehensive evaluation of the model's performance across different subsets of the data, helping to identify potential overfitting and variability in predictions.
+# The final results provide insights into the expected accuracy and reliability of the random forest classifier when applied to new, unseen samples.
+#folds: list of indices for each fold based on studies means that samples from the same study are grouped together.
+
+
+library(randomForest)
+library(caret)
+
+set.seed(123)
+
+# 1) Create folds based on SRA studies (SMART CV)
+studies <- unique(meta_nomixed$sra_study)
+
+# Create 10 folds of STUDIES (not samples)
+
+folds <- createFolds(studies, k = 10, list = TRUE)
+
+
+
+
+```
+
+
+
+
+
+
+
+```{r}
+# To store results
+#acc_vec, kappa_vec: vectors to store accuracy and kappa statistics for each fold.
+# These vectors will be populated during the cross-validation loop to summarize model performance across all folds.
+
+
+acc_vec <- numeric(length(folds))
+kappa_vec <- numeric(length(folds))
+
+
+```
+
+
+
+
+
+
+
+
+```{r}
+
+#  Cross-validation loop
+# In this loop, I performed the 10-fold cross-validation by iterating over each fold of studies.
+# For each iteration, I separated the data into training and test sets based on the studies assigned to the current fold.
+# The random forest model was trained on the training set and evaluated on the test set, with accuracy and kappa statistics calculated from the confusion matrix.
+# The results for each fold were stored in the acc_vec and kappa_vec vectors for later summarization.
+# This loop ensures that the model is validated on independent data in each fold, providing a comprehensive assessment of its performance across the entire dataset.  
+
+
+#test_studies: studies assigned to the current fold for testing.
+#train_idx, test_idx: logical indices to separate training and test samples based on the current fold.
+#X_train, y_train: training features and labels for the current fold.
+#X_test, y_test: test features and labels for the current fold.
+#rf_cv: random forest model trained on the current fold's training set.
+#preds: predicted tissue labels for the test set in the current fold.
+#cm: confusion matrix summarizing model performance for the current fold.
+
+
+
+
+for (i in seq_along(folds)) {
+
+  test_studies <- studies[folds[[i]]]
+  train_idx <- !(meta_nomixed$sra_study %in% test_studies)
+  test_idx  <-  (meta_nomixed$sra_study %in% test_studies)
+
+  X_train <- X20[train_idx, , drop = FALSE]
+  y_train <- y[train_idx]
+
+  X_test  <- X20[test_idx, , drop = FALSE]
+  y_test  <- y[test_idx]
+
+  rf_cv <- randomForest(
+    x = X_train,
+    y = y_train, 
+    ntree = 500
+  )
+
+preds <- predict(rf_cv, X_test)
+  cm <- confusionMatrix(preds, y_test)
+
+  acc_vec[i]   <- cm$overall["Accuracy"]
+  kappa_vec[i] <- cm$overall["Kappa"]
+}
+
+
+
+
+```
+
+
+
+
+
+
+
+
+```{r}
+# 3) Cross-validation summary
+# In this step, I summarized the results of the 10-fold cross-validation by calculating the mean and standard deviation of accuracy and kappa statistics across all folds.
+# These summary statistics provide insights into the overall performance and reliability of the random forest model when predicting tissue types based on the first 20 principal components.
+# The mean accuracy indicates the average proportion of correct predictions, while the mean kappa statistic accounts for chance agreement, offering a more nuanced measure of model performance.
+# The standard deviations reflect the variability in performance across the different folds, highlighting the consistency of the model's predictions.
+# This summary is crucial for understanding the expected performance of the model on new, unseen data and informs future model refinement efforts.
+
+mean(acc_vec)
+sd(acc_vec)
+
+mean(kappa_vec)
+sd(kappa_vec)
+
+
+
+```
+
+#ten-fold cross-validation results confirmed that robustness of the model across different subset of experiments
+
+
+
+
+```{r}
+#
+
+```
+
+
+
+
+
+
+```{r}
+```
+
+
+
+
+
+
+```{r}
+```
+
+
+
+
+
+
+```{r}
+```
+
+
+
+
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
