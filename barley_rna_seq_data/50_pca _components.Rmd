@@ -51,6 +51,8 @@ df2 <- read.delim("../barley_rna_seq_data/my_barley_input.2.part3.abundance.tsv.
 df3 <- read.delim("../barley_rna_seq_data/my_barley_input.2.part4.abundance.tsv.gz", header = TRUE, sep = "\t")
 
 
+
+
 ```
 
 
@@ -109,9 +111,7 @@ sum(is.na(df4))
 ```{r}
 # extract TPM columns + gene column
 tpm_df <- df4 %>%
-  select(gene, ends_with("_tpm"))
-
-
+  select(gene, ends_with("_tpm")) 
 
 
 ```
@@ -245,7 +245,6 @@ excel_sheets("hordeum_vulgare_10520.xlsx")
 
 
 
-
 ```{r}
 
 #load necessary libraries before data cleaning
@@ -255,6 +254,18 @@ library(magrittr)  # makes sure %>% is available
 
 ```
 
+
+
+
+
+
+
+```{r}
+#i want to read in a specific sheet from the excel file
+meta_raw <- read_xlsx("hordeum_vulgare_10520.xlsx", sheet = "Sheet1")
+
+
+```
 
 
 
@@ -441,6 +452,26 @@ pc_var
 
 ```
 
+ 
+
+
+
+
+
+```{r}
+library(dplyr)
+
+# Clean metadata 
+
+meta2 <- meta_aligned %>%
+  mutate(
+    sra_study = `SRA Study`,
+    tissue = as.character(tissue)
+  )
+
+
+```
+
 
 
 
@@ -449,7 +480,43 @@ pc_var
 
 ```{r}
 
+# Keep only samples with known tissue + known study
+keep_known <- !is.na(meta2$tissue) & meta2$tissue != "" &
+              !is.na(meta2$sra_study) & meta2$sra_study != ""
 
+meta_known <- meta2[keep_known, , drop = FALSE]
+
+
+
+```
+
+
+
+
+
+
+
+```{r}
+# Extract PC1–PC50
+X50_all <- as.data.frame(pca_res$x[keep_known, 1:50, drop = FALSE])
+y_all   <- factor(meta_known$tissue)
+
+
+
+```
+
+
+
+
+
+
+```{r}
+
+# Remove "mixed" from training
+keep_nomixed <- y_all != "mixed"
+X50 <- X50_all[keep_nomixed, , drop = FALSE]
+y   <- droplevels(y_all[keep_nomixed])
+meta_nomixed <- meta_known[keep_nomixed, , drop = FALSE]
 
 
 
@@ -463,8 +530,100 @@ pc_var
 
 ```{r}
 
+# Sanity checks
+dim(X50)                       # samples x 50
+table(y)                       # tissue counts (no mixed)
+length(unique(meta_nomixed$sra_study))  # number of studies
 
 
+
+```
+
+
+
+
+
+
+```{r}
+# Split into train/test by study
+set.seed(123)
+
+studies <- unique(meta_nomixed$sra_study)
+test_studies <- sample(studies, size = round(0.2 * length(studies)))
+train_studies <- setdiff(studies, test_studies)
+
+train_idx <- meta_nomixed$sra_study %in% train_studies
+test_idx  <- meta_nomixed$sra_study %in% test_studies
+
+X_train <- X50[train_idx, , drop = FALSE]
+y_train <- y[train_idx]
+
+X_test  <- X50[test_idx, , drop = FALSE]
+y_test  <- y[test_idx]
+
+# Checks
+dim(X_train); dim(X_test)
+length(unique(meta_nomixed$sra_study[train_idx]))
+length(unique(meta_nomixed$sra_study[test_idx]))
+
+
+```
+
+
+
+# i splitted known samples for training and testing based on SRA study so that no overlap of studies in training and testing
+
+#total known samples are 5365 from 183 studies
+#Training: 4636 samples and 20 pcs were used as features
+#Testing:   729 samples and 20 pcs were used as features
+# Training set has 146 studies and test set has 37 studies  
+# total studies are 183 which are unique studies in the metadata and same studies appear in the 4636 samples
+# 183 studies are unique studies each study may have multiple samples
+
+
+
+
+
+
+
+```{r}
+
+#
+library(randomForest)
+library(caret)
+
+set.seed(123)
+
+rf50 <- randomForest(
+  x = X_train,
+  y = y_train,
+  ntree = 500,
+  importance = TRUE
+)
+
+pred_test <- predict(rf50, X_test)
+cm50 <- confusionMatrix(pred_test, y_test)
+cm50
+
+
+```
+
+
+
+#kappa results are 0.8075 means "substantial agreement" between predicted and actual tissue labels in the test set.meaning the model is performing well in classifying tissue types based on the first 50 principal components of the gene expression data.
+
+#accuracy results are 0.8573 means that approximately 85.73% of the tissue type predictions made by the random forest model on the test set were correct.
+
+
+
+
+
+
+```{r}
+
+# Probabilities
+prob_test50 <- predict(rf50, X_test, type = "prob")
+head(prob_test50)
 
 
 ```
@@ -477,21 +636,14 @@ pc_var
 
 ```{r}
 
+library(randomForest)
+library(caret)
 
+set.seed(123)
 
-
-
-```
-
-
-
-
-
-
-```{r}
-
-
-
+# 1) Build folds on STUDIES (not samples)
+studies <- unique(meta_nomixed$sra_study)
+folds <- createFolds(studies, k = 10, list = TRUE)
 
 
 ```
@@ -503,22 +655,9 @@ pc_var
 
 
 ```{r}
-
-
-
-
-
-```
-
-
-
-
-
-
-```{r}
-
-
-
+# Store fold metrics
+acc_vec <- numeric(length(folds))
+kappa_vec <- numeric(length(folds))
 
 
 ```
@@ -531,35 +670,32 @@ pc_var
 
 ```{r}
 
+# CV loop
+for (i in seq_along(folds)) {
 
+  test_studies <- studies[folds[[i]]]
 
+  train_idx <- !(meta_nomixed$sra_study %in% test_studies)
+  test_idx  <-  (meta_nomixed$sra_study %in% test_studies)
 
+  X_train <- X50[train_idx, , drop = FALSE]
+  y_train <- y[train_idx]
 
-```
+  X_test  <- X50[test_idx, , drop = FALSE]
+  y_test  <- y[test_idx]
 
+  rf_cv <- randomForest(
+    x = X_train,
+    y = y_train,
+    ntree = 500
+  )
 
+  preds <- predict(rf_cv, X_test)
+  cm <- confusionMatrix(preds, y_test)
 
-
-
-
-```{r}
-
-
-
-
-
-```
-
-
-
-
-
-
-
-```{r}
-
-
-
+  acc_vec[i]   <- as.numeric(cm$overall["Accuracy"])
+  kappa_vec[i] <- as.numeric(cm$overall["Kappa"])
+}
 
 
 ```
@@ -571,36 +707,12 @@ pc_var
 
 
 ```{r}
+# Summarize CV results
+mean(acc_vec)
+sd(acc_vec)
 
-
-
-
-
-```
-
-
-
-
-
-
-
-```{r}
-
-
-
-
-```
-
-
-
-
-
-
-
-```{r}
-
-
-
+mean(kappa_vec)
+sd(kappa_vec)
 
 ```
 
