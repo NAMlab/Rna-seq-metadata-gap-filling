@@ -13,7 +13,6 @@ getwd()
 setwd("C:/Users/yarram/Documents/Rna-seq-metadata-gap-filling/barley_rna_seq_data")
 
 
-
 ```
 
 
@@ -46,11 +45,7 @@ df2 <- read.delim("../barley_rna_seq_data/my_barley_input.2.part3.abundance.tsv.
 df3 <- read.delim("../barley_rna_seq_data/my_barley_input.2.part4.abundance.tsv.gz", header = TRUE, sep = "\t")
 
 
-
-
 ```
-
-
 
 
 
@@ -82,7 +77,6 @@ df4 <- list(df, df1, df2, df3) |>
 colnames(df4) <- make.unique(colnames(df4))
 
 
-
 ```
 
 
@@ -91,11 +85,10 @@ colnames(df4) <- make.unique(colnames(df4))
 
 
 ```{r}
+# check for NAs
 sum(is.na(df4)) 
 
-
 ```
-
 
 
 
@@ -107,7 +100,6 @@ tpm_df <- df4 %>%
 
 
 ```
-
 
 
 
@@ -198,18 +190,12 @@ colnames(meta_raw)
 
 
 
-
-
-
 ```{r}
 
 # i want to see how many sheets of data are in the excel file
 excel_sheets("hordeum_vulgare_10520.xlsx")
 
 ```
-
-
-
 
 
 
@@ -335,7 +321,6 @@ log_tpm <- t(log1p(tpm_matrix))   # big object: 10096 x ~37962
 
 
 
-
 ```{r}
 
 # remove genes with zero variance (constant across all samples)
@@ -347,8 +332,6 @@ log_tpm_f <- log_tpm[, gene_var > 0, drop = FALSE]
 
 
 ```
-
-
 
 
 
@@ -366,16 +349,11 @@ cat("genes before:", ncol_before, "\ngenes after:", ncol_after,
 
 
 
-
-
-
 ```{r}
 # run PCA on log-transformed TPM
 pca_res <- prcomp(log_tpm_f, center = TRUE, scale. = TRUE)
 
 ```
-
-
 
 
 
@@ -391,31 +369,22 @@ pc_var
 
 
 
-
-
 ```{r}
 #prepare the data for random forest 10 PCs,only known tissue and known SRA study)
-
-# 1) Make a clean metadata object with a safe sra_study column
-
+# Make a clean metadata object with a safe sra_study column
 #in this step, we are creating a new metadata dataframe called meta2 from the existing meta_aligned dataframe.
-
 #why is this step important?
 # This step is crucial because it standardizes and prepares the metadata for subsequent analysis.
 # By creating a new column sra_study and ensuring that the tissue column is in character format,
 # we make it easier to filter and manipulate the data later on, especially when we want
 # to select samples with known tissue types and study identifiers for training/testing our model.
 
-
 library(dplyr)
-
-
 meta2 <- meta_aligned %>%
   mutate(
     sra_study = `SRA Study`,   # column name has a SPACE in your file
     tissue = as.character(tissue)
   )
-
 
 ```
 
@@ -425,15 +394,12 @@ meta2 <- meta_aligned %>%
 
 
 ```{r}
-# 2) Keep only samples that have BOTH tissue + sra_study (for training/testing)
-
+# Keep only samples that have BOTH tissue + sra_study (for training/testing)
 # In this step, we are filtering the metadata dataframe meta2 to retain only those samples that have known values for both the tissue and sra_study columns.
 # This is important because we want to ensure that our training and testing datasets only include samples with complete information for these key variables.
-# By doing this, we can build a more reliable model since we won't be dealing with missing data for these critical features.
-
+# By doing this, we can build a more reliable model since we won't be dealing with missing data for these critical features
 
 keep_known <- !is.na(meta2$tissue) & meta2$tissue != "" & !is.na(meta2$sra_study) & meta2$sra_study != ""
-
 meta_known <- meta2[keep_known, , drop = FALSE]
 
 
@@ -447,8 +413,8 @@ meta_known <- meta2[keep_known, , drop = FALSE]
 
 
 ```{r}
-#3) Build features from first 10 PCs (rows match samples)
-# In this step, we are creating a new feature matrix X10 that contains the first 10 principal components (PCs) from the PCA results for only those samples that have known tissue types.
+# Build features from first 10 PCs (rows match samples)
+#In this step, we are creating a new feature matrix X10 that contains the first 10 principal components (PCs) from the PCA results for only those samples that have known tissue types.
 # We are also creating a response vector y that contains the corresponding tissue labels for these samples.
 # why is this step important?
 # This step is crucial because it transforms the high-dimensional gene expression data into a more manageable form
@@ -463,9 +429,7 @@ X10 <- as.data.frame(pca_res$x[keep_known, 1:10, drop = FALSE])
 y  <- factor(meta_known$tissue)
 
 
-
 ```
-
 
 
 
@@ -483,20 +447,15 @@ length(unique(meta_known$sra_study))  # how many studies used
 
 
 ```{r}
-# 3) now i am doing study -wise splitting so that training and testing sets do not share samples from same study
-
-
+# now i am doing study -wise splitting so that training and testing sets do not share samples from same study
 #why i did this step?
-
 # This step is important because it ensures that the training and testing datasets are independent in terms of study origin,meaning that samples from the same SRA study do not appear in both sets.
-
 # By splitting the data based on unique sra_study identifiers, we prevent data leakage,
 # where samples from the same study could end up in both the training and testing sets.
 # Such leakage can lead to overly optimistic performance estimates, as the model might learn study-specific patterns
 # rather than generalizable features.
 # By keeping studies separate, we can better assess how well the model generalizes to new, unseen studies,
 # which is crucial for evaluating its real-world applicability.
-
 
 set.seed(123)
 
@@ -518,12 +477,7 @@ length(unique(meta_known$sra_study[train_idx]))
 length(unique(meta_known$sra_study[test_idx]))
 
 
-
 ```
-
-
-
-
 
 
 ```{r}
@@ -534,12 +488,7 @@ length(unique(meta_known$sra_study[train_idx]))
 length(unique(meta_known$sra_study[test_idx]))
 
 
-
 ```
-
-
-
-
 
 
 # i splitted known samples for training and testing based on SRA study so that no overlap of studies in training and testing
@@ -565,10 +514,6 @@ length(unique(meta_known$sra_study[test_idx]))
 
 
 
-
-
-
-
 ```{r}
 # perform random forest classification
 
@@ -584,16 +529,13 @@ library(caret)
 set.seed(123)
 
 # train RF
-
 #this code is training a random forest classifier using the training data (X_train and y_train).
 # The randomForest function is called with the following parameters:
 # x = X_train: This is the feature matrix for training, where each row represents a sample and each column represents a feature (in this case, the first 10 principal components).
 # y = as.factor(y_train): This is the response vector for training, which contains the class labels (tissue types) for each sample. The labels are converted to a factor to indicate that they are categorical.
 # ntree = 500: This specifies the number of trees to grow in the random forest. A higher number of trees can improve model performance but also increases computation time.
 #ntree actuall means number of trees, in random forest, multiple decision trees are built, and each tree makes a prediction.
-
 # importance = TRUE: This option indicates that the model should calculate and store variable importance measures, which can be useful for understanding which features contribute most to the classification.
-
 
 rf10 <- randomForest(
   x = X_train,
@@ -603,7 +545,6 @@ rf10 <- randomForest(
 )
 
 # predict on TEST
-
 #this code is using the trained random forest model (rf10) to make predictions on the test dataset (X_test).
 # The predict function is called with the following parameters:
 # rf10: This is the trained random forest model that was created in the previous step.
@@ -633,27 +574,15 @@ cm
 
 
 
-
 #kappa statistic value is 0.7794 mean's substantial agreement between predicted and true tissue labels in the test set. in clear words, the random forest model is performing well in classifying tissue types based on the first 10 principal components of the gene expression data.
 
 
 
-
-
-
-
-
 ```{r}
-# view predicted probabilities for test set
-
-#in this step, we are using the trained random forest model (rf10) to obtain the predicted probabilities for each class (tissue type) for the samples in the test dataset (X_test). 
-# The predict function is called with the following parameters:
-# rf10: This is the trained random forest model created earlier.
-# X_test: This is the feature matrix for the test dataset, where each row represents a
-# sample and each column represents a feature (the first 10 principal components).
-# type = "prob": This option specifies that the function should return the predicted probabilities for each
-# class rather than the predicted class labels.
-# The resulting prob_test object contains the predicted probabilities for each class (tissue type) for each sample in the test set.  
+# Probabilities
+#this step is generating predicted probabilities for each class (tissue type) for the test feature set using the trained random forest model.
+# The predicted probabilities indicate the model's confidence in assigning each sample to each tissue type.
+# This information can be useful for understanding the model's uncertainty in its predictions and for making more informed decisions based on the predicted probabilities  
 
 
 prob_test <- predict(rf10, X_test, type = "prob")
@@ -662,7 +591,6 @@ head(prob_test)
 
 
 ```
-
 
 
 
@@ -675,20 +603,13 @@ head(prob_test)
 
 
 
-
-
-
-
-
-
 ```{r}
-#next step is 10 fold cross validation
-# this step what i am doing is creating folds for 10 fold cross validation based on unique sra studies  
-# This ensures that samples from the same study are not split between training and testing sets within each fold,
-# preventing data leakage and providing a more accurate assessment of model performance.
-# By assigning entire studies to specific folds, we can better evaluate how well the model generalizes to new, unseen studies,
-# which is crucial for assessing its real-world applicability.
-#
+# 10-fold CV by STUDY
+# Here, we are performing 10-fold cross-validation (CV) on the random forest model using studies as the basis for splitting the data.
+# set.seed(123) ensures that the random processes involved in creating the folds are reproducible.
+# createFolds(studies, k = 10, list = TRUE) generates 10 folds of the unique studies in the dataset.
+# Each fold will be used as a test set once, while the remaining folds will serve as the training set.
+# This approach helps to evaluate the model's performance more robustly by ensuring that it is tested on different subsets of the data, reducing the risk of overfitting and providing a better estimate of its generalization ability.
 
 set.seed(123)
 
@@ -709,18 +630,11 @@ study_folds <- data.frame(
 
 
 
-
-
 ```{r}
 #storage for results
 
 library(randomForest)
 library(caret)
-
-
-# in this step, we are initializing two numeric vectors, acc_vec and kappa_vec, each of length 10,
-# to store the accuracy and kappa statistics from each fold of the 10-fold cross-validation process.
-# These vectors will be used to collect the performance metrics for each fold, allowing us to later summarize the overall model performance across all folds.
 
 acc_vec <- numeric(10)
 kappa_vec <- numeric(10)
@@ -731,29 +645,8 @@ kappa_vec <- numeric(10)
 
 
 
-
-
 ```{r}
-#now perform 10 fold cross validation by loop
-
-# In this step, we are performing 10-fold cross-validation to evaluate the performance of a random forest classifier.
-# For each fold (k from 1 to 10), we:
-# 1. Identify the test studies assigned to the current fold.
-# 2. Create training and testing indices based on these studies.
-# 3. Extract the corresponding training and testing feature matrices (X_train, X_test) and response vectors (y_train, y_test).
-# 4. Train a random forest model using the training data.
-# 5. Make predictions on the test data.
-# 6. Compute the confusion matrix to evaluate the predictions.
-# 7. Store the accuracy and kappa statistics from the confusion matrix into the acc_vec and kappa_vec vectors for later summarization.
-
-#pred means predicted values
-#cm means confusion
-#acc_vec means accuracy vector
-#kappa_vec means kappa vector
-
-#test_idx contains TRUE for samples in the test set for the current fold
-#train_idx contains TRUE for samples in the training set for the current fold
-
+# 10 fold cross validation by loop
 
 for (k in 1:10) {
 
@@ -782,11 +675,7 @@ for (k in 1:10) {
   kappa_vec[k] <- cm$overall["Kappa"]
 }
 
-
-
 ```
-
-
 
 
 
@@ -794,19 +683,12 @@ for (k in 1:10) {
 
 ```{r}
 # summrisize cross-validation results
-# In this step, we are summarizing the results of the 10-fold cross-validation by calculating the mean and standard deviation of the accuracy and kappa statistics stored in the acc_vec and kappa_vec vectors.
-# The mean accuracy provides an overall measure of how well the model performed across all folds,
-# while the standard deviation indicates the variability in performance between the folds.
-# This summary helps us understand the model's generalization ability and stability across different subsets of the data.
-
 
 mean(acc_vec)
 sd(acc_vec)
 
 mean(kappa_vec)
 sd(kappa_vec)
-
-
 
 ```
 

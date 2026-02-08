@@ -3,9 +3,7 @@
 
 getwd()
 
-
 ```
-
 
 
 
@@ -14,9 +12,6 @@ getwd()
 setwd("C:/Users/yarram/Documents/Rna-seq-metadata-gap-filling/barley_rna_seq_data")
 
 ```
-
-
-
 
 
 
@@ -39,9 +34,6 @@ library(pheatmap)
 
 
 
-
-
-
 ```{r}
 # read in the four parts of the  data
 df <- read.delim("../barley_rna_seq_data/my_barley_input.2.part1.abundance.tsv.gz", header = TRUE, sep = "\t")
@@ -57,9 +49,6 @@ df3 <- read.delim("../barley_rna_seq_data/my_barley_input.2.part4.abundance.tsv.
 
 
 
-
-
-
 ```{r}
 # Rename the first column of each df to "gene"
 names(df)[1]   <- "gene"
@@ -69,9 +58,6 @@ names( df3)[1] <- "gene"
 
 
 ```
-
-
-
 
 
 
@@ -95,18 +81,12 @@ colnames(df4) <- make.unique(colnames(df4))
 
 
 
-
-
-
 ```{r}
 
 sum(is.na(df4)) 
 
 
 ```
-
-
-
 
 
 
@@ -123,8 +103,6 @@ tpm_df <- df4 %>%
 
 
 
-
-
 ```{r}
 # quick check
 dim(tpm_df)
@@ -132,10 +110,6 @@ head(tpm_df[, 1:6])
 
 
 ```
-
-
-
-
 
 
 
@@ -156,20 +130,12 @@ mode(tpm_matrix) <- "numeric"
 
 
 
-
-
-
 ```{r}
 
 #check dimensions
 dim(tpm_matrix)
 
 ```
-
-
-
-
-
 
 
 ```{r}
@@ -179,9 +145,6 @@ head(tpm_matrix[, 1:6])
 
 
 ```
-
-
-
 
 
 
@@ -198,15 +161,12 @@ colnames(tpm_matrix) <- gsub("_tpm$", "", colnames(tpm_matrix))
 
 
 
-
-
 ```{r}
 #load your metadata
 library(readxl)
 meta_raw <- read_xlsx("hordeum_vulgare_10520.xlsx")
 
 ```
-
 
 
 
@@ -221,8 +181,6 @@ colnames(meta_raw)
 
 
 
-
-
 ```{r}
 
 # i want to see how many sheets of data are in the excel file
@@ -230,7 +188,6 @@ excel_sheets("hordeum_vulgare_10520.xlsx")
 
 
 ```
-
 
 
 
@@ -247,16 +204,12 @@ library(magrittr)  # makes sure %>% is available
 
 
 
-
-
 ```{r}
 #i want to read in a specific sheet from the excel file
 meta_raw <- read_xlsx("hordeum_vulgare_10520.xlsx", sheet = "Sheet1")
 
 
 ```
-
-
 
 
 
@@ -286,7 +239,6 @@ meta <- meta_raw %>%
 
 
 
-
 ```{r}
 # checking the data
 dim(meta)
@@ -294,9 +246,6 @@ head(meta[, c("sample_id","treatment","tissue","layout")])
 
 
 ```
-
-
-
 
 
 
@@ -315,8 +264,6 @@ meta_keep <- meta %>%
 
 
 
-
-
 ```{r}
 # order rows of metadata to match the TPM column order
 ord  <- match(colnames(tpm_matrix), meta_keep$sample_id)
@@ -329,8 +276,6 @@ keep <- !is.na(ord)
 
 
 
-
-
 ```{r}
 # apply the same filter/order to both objects
 tpm_matrix   <- tpm_matrix[, keep, drop = FALSE]
@@ -338,8 +283,6 @@ meta_aligned <- meta_keep[ord[keep], ]
 
 
 ```
-
-
 
 
 
@@ -358,10 +301,6 @@ head(meta_aligned[, c("sample_id","treatment","tissue","layout")])
 
 
 
-
-
-
-
 ```{r}
 # log1p-transform and transpose -> rows = samples, cols = genes
 # RNA-seq TPM values can vary hugely — some genes have TPMs of 0.1, others 10,000+.
@@ -372,9 +311,6 @@ log_tpm <- t(log1p(tpm_matrix))   # big object: 10096 x ~37962
 
 
 ```
-
-
-
 
 
 
@@ -396,9 +332,6 @@ log_tpm_f <- log_tpm[, gene_var > 0, drop = FALSE]
 
 
 
-
-
-
 ```{r}
 #  quick checks
 ncol_before <- ncol(log_tpm)
@@ -408,10 +341,6 @@ cat("genes before:", ncol_before, "\ngenes after:", ncol_after,
 
 
 ```
-
-
-
-
 
 
 
@@ -426,8 +355,6 @@ pca_res <- prcomp(log_tpm_f, center = TRUE, scale. = TRUE)
 
 
 
-
-
 ```{r}
 # variance explained by first few PCs
 pc_var <- summary(pca_res)$importance[2, 1:6] * 100
@@ -435,7 +362,6 @@ pc_var
 
 
 ```
-
 
 
 
@@ -460,7 +386,6 @@ meta2 <- meta_aligned %>%
 
 
 
-
 ```{r}
 # Keep only samples with known tissue + known study
 
@@ -471,8 +396,6 @@ meta_known <- meta2[keep_known, , drop = FALSE]
 
 
 ```
-
-
 
 
 
@@ -489,8 +412,6 @@ y_all   <- factor(meta_known$tissue)
 
 
 ```
-
-
 
 
 
@@ -515,8 +436,6 @@ meta_nomixed <- meta_known[keep_nomixed, , drop = FALSE]
 
 
 
-
-
 ```{r}
 # Sanity checks
 dim(X20)                       # samples x 20
@@ -525,9 +444,6 @@ length(unique(meta_nomixed$sra_study))  # number of studies
 
 
 ```
-
-
-
 
 
 
@@ -574,11 +490,6 @@ length(unique(meta_nomixed$sra_study[test_idx]))
 # Training set has 146 studies and test set has 37 studies  
 # total studies are 183 which are unique studies in the metadata and same studies appear in the 4636 samples
 # 183 studies are unique studies each study may have multiple samples
-
-
-
-
-
 
 
 
@@ -634,13 +545,8 @@ cm20
 
 
 
-
-
 #kappa value is 0.7699 means the model is performing well beyond random guessing.
 # the accuracy of the model is 0.8272 means the model correctly predicts the tissue type for approximately 82.72% of the samples in the test set.
-
-
-
 
 
 
@@ -680,19 +586,14 @@ library(caret)
 
 set.seed(123)
 
-# 1) Create folds based on SRA studies (SMART CV)
+# Create folds based on SRA studies (SMART CV)
 studies <- unique(meta_nomixed$sra_study)
 
 # Create 10 folds of STUDIES (not samples)
 
 folds <- createFolds(studies, k = 10, list = TRUE)
 
-
-
-
 ```
-
-
 
 
 
@@ -702,7 +603,6 @@ folds <- createFolds(studies, k = 10, list = TRUE)
 # To store results
 #acc_vec, kappa_vec: vectors to store accuracy and kappa statistics for each fold.
 # These vectors will be populated during the cross-validation loop to summarize model performance across all folds.
-
 
 acc_vec <- numeric(length(folds))
 kappa_vec <- numeric(length(folds))
@@ -714,29 +614,9 @@ kappa_vec <- numeric(length(folds))
 
 
 
-
-
-
 ```{r}
 
-#  Cross-validation loop
-# In this loop, I performed the 10-fold cross-validation by iterating over each fold of studies.
-# For each iteration, I separated the data into training and test sets based on the studies assigned to the current fold.
-# The random forest model was trained on the training set and evaluated on the test set, with accuracy and kappa statistics calculated from the confusion matrix.
-# The results for each fold were stored in the acc_vec and kappa_vec vectors for later summarization.
-# This loop ensures that the model is validated on independent data in each fold, providing a comprehensive assessment of its performance across the entire dataset.  
-
-
-#test_studies: studies assigned to the current fold for testing.
-#train_idx, test_idx: logical indices to separate training and test samples based on the current fold.
-#X_train, y_train: training features and labels for the current fold.
-#X_test, y_test: test features and labels for the current fold.
-#rf_cv: random forest model trained on the current fold's training set.
-#preds: predicted tissue labels for the test set in the current fold.
-#cm: confusion matrix summarizing model performance for the current fold.
-
-
-
+#  Cross-validation loop.
 
 for (i in seq_along(folds)) {
 
@@ -764,24 +644,15 @@ preds <- predict(rf_cv, X_test)
 }
 
 
-
-
 ```
 
 
 
 
 
-
-
-
 ```{r}
-# 3) Cross-validation summary
-# In this step, I summarized the results of the 10-fold cross-validation by calculating the mean and standard deviation of accuracy and kappa statistics across all folds.
-# These summary statistics provide insights into the overall performance and reliability of the random forest model when predicting tissue types based on the first 20 principal components.
-# The mean accuracy indicates the average proportion of correct predictions, while the mean kappa statistic accounts for chance agreement, offering a more nuanced measure of model performance.
-# The standard deviations reflect the variability in performance across the different folds, highlighting the consistency of the model's predictions.
-# This summary is crucial for understanding the expected performance of the model on new, unseen data and informs future model refinement efforts.
+# Cross-validation summary
+
 
 mean(acc_vec)
 sd(acc_vec)
@@ -793,7 +664,6 @@ sd(kappa_vec)
 
 ```
 
-#ten-fold cross-validation results confirmed that robustness of the model across different subset of experiments
 
 
 

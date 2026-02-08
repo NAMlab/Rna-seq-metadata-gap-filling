@@ -8,8 +8,6 @@ getwd()
 
 
 
-
-
 ```{r}
 
 #set working directory
@@ -18,8 +16,6 @@ setwd("C:/Users/yarram/Documents/Rna-seq-metadata-gap-filling/barley_rna_seq_dat
 
 
 ```
-
-
 
 
 
@@ -43,7 +39,6 @@ library(pheatmap)
 
 
 
-
 ```{r}
 # read in the four parts of the  data
 
@@ -52,10 +47,7 @@ df1 <- read.delim("../barley_rna_seq_data/my_barley_input.2.part2.abundance.tsv.
 df2 <- read.delim("../barley_rna_seq_data/my_barley_input.2.part3.abundance.tsv.gz", header = TRUE, sep = "\t")
 df3 <- read.delim("../barley_rna_seq_data/my_barley_input.2.part4.abundance.tsv.gz", header = TRUE, sep = "\t")
 
-
 ```
-
-
 
 
 
@@ -71,10 +63,7 @@ names(df1)[1]  <- "gene"
 names(df2)[1]  <- "gene"
 names( df3)[1] <- "gene"
 
-
-
 ```
-
 
 
 
@@ -88,7 +77,6 @@ names( df3)[1] <- "gene"
 # even if some genes are missing in certain data frames.
 # The Reduce function is used to iteratively apply full_join across the list of data frames.means "reduce" or "combine" all data frames into one by joining them on the "gene" column.
 
-
 library(dplyr)
 # Merge data frames by "gene" column using full_join
 df4 <- list(df, df1, df2, df3) |>
@@ -97,10 +85,7 @@ df4 <- list(df, df1, df2, df3) |>
 # (optional) if any duplicate sample names exist, make them unique
 colnames(df4) <- make.unique(colnames(df4))
 
-
-
 ```
-
 
 
 
@@ -111,13 +96,7 @@ colnames(df4) <- make.unique(colnames(df4))
 
 sum(is.na(df4)) 
 
-
 ```
-
-
-
-
-
 
 
 ```{r}
@@ -128,14 +107,11 @@ sum(is.na(df4))
 # This is important because TPM values are commonly used in RNA-seq data analysis to quantify gene expression levels,
 # and having a separate data frame with just the gene identifiers and their corresponding TPM values makes it easier to work with the expression data for downstream analyses such as PCA, clustering, or differential expression analysis.
 
-
 tpm_df <- df4 %>%
   select(gene, ends_with("_tpm"))
 
 
 ```
-
-
 
 
 
@@ -148,9 +124,6 @@ head(tpm_df[, 1:6])
 
 
 ```
-
-
-
 
 
 
@@ -168,27 +141,17 @@ tpm_matrix <- as.matrix(tpm_df)
 mode(tpm_matrix) <- "numeric"
 
 
-
-
 ```
-
-
 
 
 
 
 
 ```{r}
-
 #check dimensions
 dim(tpm_matrix)
 
-
 ```
-
-
-
-
 
 
 
@@ -200,9 +163,6 @@ head(tpm_matrix[, 1:6])
 
 
 ```
-
-
-
 
 
 
@@ -223,9 +183,6 @@ colnames(tpm_matrix) <- gsub("_tpm$", "", colnames(tpm_matrix))
 
 
 
-
-
-
 ```{r}
 
 #load your metadata
@@ -234,9 +191,6 @@ meta_raw <- read_xlsx("hordeum_vulgare_10520.xlsx")
 
 
 ```
-
-
-
 
 
 
@@ -251,10 +205,6 @@ colnames(meta_raw)
 
 
 
-
-
-
-
 ```{r}
 
 # i want to see how many sheets of data are in the excel file
@@ -265,10 +215,6 @@ excel_sheets("hordeum_vulgare_10520.xlsx")
 
 
 
-
-
-
-
 ```{r}
 
 #i want to read in a specific sheet from the excel file
@@ -276,9 +222,6 @@ meta_raw <- read_xlsx("hordeum_vulgare_10520.xlsx", sheet = "Sheet1")
 
 
 ```
-
-
-
 
 
 
@@ -298,15 +241,12 @@ library(magrittr)  # makes sure %>% is available
 
 
 
-
 ```{r}
 #i want to read in a specific sheet from the excel file
 meta_raw <- read_xlsx("hordeum_vulgare_10520.xlsx", sheet = "Sheet1")
 
 
 ```
-
-
 
 
 
@@ -338,10 +278,6 @@ meta <- meta_raw %>%
 
 
 
-
-
-
-
 ```{r}
 # checking the data
 dim(meta)
@@ -349,9 +285,6 @@ head(meta[, c("sample_id","treatment","tissue","layout")])
 
 
 ```
-
-
-
 
 
 
@@ -367,8 +300,6 @@ meta_keep <- meta %>%
 
 
 ```
-
-
 
 
 
@@ -428,9 +359,6 @@ head(meta_aligned[, c("sample_id","treatment","tissue","layout")])
 
 
 
-
-
-
 ```{r}
 
 # log1p-transform and transpose -> rows = samples, cols = genes
@@ -439,8 +367,6 @@ head(meta_aligned[, c("sample_id","treatment","tissue","layout")])
 #It stabilizes variance (so big and small expression values are comparable).
 
 log_tpm <- t(log1p(tpm_matrix))   # big object: 10096 x ~37962
-
-
 
 
 ```
@@ -462,8 +388,6 @@ log_tpm_f <- log_tpm[, gene_var > 0, drop = FALSE]
 
 
 ```
-
-
 
 
 
@@ -503,8 +427,6 @@ pca_res <- prcomp(log_tpm_f, center = TRUE, scale. = TRUE)
 
 
 
-
-
 ```{r}
 
 # variance explained by first few PCs
@@ -513,9 +435,6 @@ pc_var
 
 
 ```
-
-
-
 
 
 
@@ -550,7 +469,6 @@ meta2 <- meta_aligned %>%
 
 
 
-
 ```{r}
 
 # Keep only samples with known tissue + known study
@@ -565,10 +483,7 @@ keep_known <- !is.na(meta2$tissue) & meta2$tissue != "" &
 
 meta_known <- meta2[keep_known, , drop = FALSE]
 
-
-
 ```
-
 
 
 
@@ -592,9 +507,6 @@ meta_known <- meta2[keep_known, , drop = FALSE]
 
 X100_all <- as.data.frame(pca_res$x[keep_known, 1:100, drop = FALSE])
 y_all   <- factor(meta_known$tissue)
-
-
-
 
 ```
 
@@ -634,30 +546,21 @@ dim(X100)                       # samples x 100
 table(y)                       # tissue counts (no mixed)
 length(unique(meta_nomixed$sra_study))  # number of studies
 
-
 ```
 
 
 
 
-
 ```{r}
-
 # now i am doing study -wise splitting so that training and testing sets do not share samples from same study
-
-
 #why i did this step?
-
 # This step is important because it ensures that the training and testing datasets are independent in terms of study origin,meaning that samples from the same SRA study do not appear in both sets.
-
 # By splitting the data based on unique sra_study identifiers, we prevent data leakage,data leakage means that information from the training set could inadvertently influence the testing set,
-
 # where samples from the same study could end up in both the training and testing sets.
 # Such leakage can lead to overly optimistic performance estimates, as the model might learn study-specific patterns
 # rather than generalizable features.
 # By keeping studies separate, we can better assess how well the model generalizes to new, unseen studies,
 # which is crucial for evaluating its real-world applicability.
-
 
 set.seed(123)
 studies <- unique(meta_nomixed$sra_study)
@@ -678,20 +581,15 @@ dim(X_train); dim(X_test)
 length(unique(meta_nomixed$sra_study[train_idx]))
 length(unique(meta_nomixed$sra_study[test_idx]))
 
-
-
 ```
 
-
-# i splitted known samples for training and testing based on SRA study so that no overlap of studies in   training and testing
-
+# i splitted known samples for training and testing based on SRA study so that no overlap of studies in training and testing
 #total known samples are 5365 from 183 studies
-#Training: 4636 samples and 20 pcs were used as features
-#Testing:   729 samples and 20 pcs were used as features
+#Training: 4636 samples and 100 pcs were used as features
+#Testing:   729 samples and 100 pcs were used as features
 # Training set has 146 studies and test set has 37 studies  
 # total studies are 183 which are unique studies in the metadata and same studies appear in the 4636 samples
 # 183 studies are unique studies each study may have multiple samples
-
 
 
 
@@ -774,7 +672,6 @@ head(prob_test100)
 
 
 
-
 ```{r}
 library(randomForest)
 library(caret)
@@ -800,7 +697,6 @@ folds <- createFolds(studies, k = 10, list = TRUE)
 
 
 
-
 ```{r}
 #store fold metrics
 #here, we are initializing two numeric vectors, acc_vec and kappa_vec, each with a length equal to the number of folds (10 in this case).
@@ -811,8 +707,6 @@ kappa_vec <- numeric(length(folds))
 
 
 ```
-
-
 
 
 
@@ -862,9 +756,11 @@ for (i in seq_along(folds)) {
 
 
 
-
 ```{r}
-# Summarize CV results
+# Summarize Cross Validation results for 100 PCs
+# In this step, we are calculating and displaying the mean and standard deviation of the accuracy and kappa statistics
+# obtained from the 10-fold cross-validation process.
+# This summary provides an overall assessment of the model's performance across all folds, allowing us to understand how well the model generalizes to unseen data.
 mean(acc_vec)
 sd(acc_vec)
 
