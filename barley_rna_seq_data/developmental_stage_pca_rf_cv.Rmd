@@ -1,0 +1,1257 @@
+
+
+```{r}
+# Load necessary libraries
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(umap)
+library(sva)
+library(limma)
+library(factoextra)
+library(pheatmap)
+
+
+```
+
+
+```{r}
+
+getwd()
+
+```
+
+
+```{r}
+#set working directory
+setwd("C:/Users/yarram/Documents/Rna-seq-metadata-gap-filling/barley_rna_seq_data")
+
+```
+
+
+
+
+```{r}
+# read in the four parts of the  data
+df <- read.delim("../barley_rna_seq_data/my_barley_input.2.part1.abundance.tsv.gz", header = TRUE, sep = "\t")
+df1 <- read.delim("../barley_rna_seq_data/my_barley_input.2.part2.abundance.tsv.gz", header = TRUE, sep = "\t")
+df2 <- read.delim("../barley_rna_seq_data/my_barley_input.2.part3.abundance.tsv.gz", header = TRUE, sep = "\t")
+df3 <- read.delim("../barley_rna_seq_data/my_barley_input.2.part4.abundance.tsv.gz", header = TRUE, sep = "\t")
+
+```
+
+
+
+
+
+```{r}
+# Rename the first column of each df to "gene"
+names(df)[1]   <- "gene"
+names(df1)[1]  <- "gene"
+names(df2)[1]  <- "gene"
+names( df3)[1] <- "gene"
+
+```
+
+
+
+
+
+```{r}
+
+library(dplyr)
+# Merge data frames by "gene" column using full_join
+df4 <- list(df, df1, df2, df3) |>
+  Reduce(function(x, y) full_join(x, y, by = "gene"), x = _)
+
+# (optional) if any duplicate sample names exist, make them unique
+colnames(df4) <- make.unique(colnames(df4))
+
+
+```
+
+
+
+
+
+
+```{r}
+# check for missing values
+sum(is.na(df4)) 
+
+
+```
+
+
+
+
+
+
+```{r}
+# extract TPM columns + gene column
+tpm_df <- df4 %>%
+  select(gene, ends_with("_tpm")) 
+
+```
+
+
+
+
+
+
+```{r}
+# quick check
+dim(tpm_df)
+head(tpm_df[, 1:6])
+
+
+```
+
+
+
+
+
+```{r}
+#set row names as gene names and remove gene column
+
+rownames(tpm_df) <- tpm_df$gene
+tpm_df <- tpm_df[, -1]
+#convert to matrix
+tpm_matrix <- as.matrix(tpm_df)
+mode(tpm_matrix) <- "numeric"
+
+```
+
+
+
+
+
+```{r}
+#check dimensions
+dim(tpm_matrix)
+
+```
+
+
+
+
+```{r}
+#check first few samples
+head(tpm_matrix[, 1:6])
+head(tpm_matrix[, 1:6])
+
+```
+
+
+
+
+```{r}
+# # check if specific genes of interest are present in the TPM matrix
+# genes <- c(
+#   "HORVU.MOREX.r3.4HG0392430.1",
+#   "HORVU.MOREX.r3.4HG0392420.1",
+#   "HORVU.MOREX.r3.4HG0390910.2",
+#   "HORVU.MOREX.r3.4HG0390560.1",
+#   "HORVU.MOREX.r3.4HG0309800.1"
+# )
+# 
+# genes %in% rownames(tpm_matrix)
+
+```
+
+
+
+
+```{r}
+# # genes and TPM values for those genes (if present)
+# genes_present <- genes[genes %in% rownames(tpm_matrix)]
+# tpm_matrix[genes_present, 1:6]
+# 
+# #which gene is missing?
+# genes[!genes %in% rownames(tpm_matrix)]
+
+
+```
+
+
+```{r}
+# genes_present <- genes[genes %in% rownames(tpm_matrix)]
+# gene_tpm_table <- tpm_matrix[genes_present, ]
+# 
+# # optional: write table
+# write.csv(gene_tpm_table, "selected_genes_TPM.csv")
+
+```
+
+
+
+
+
+```{r}
+# log_tpm <- log2(gene_tpm_table + 1)
+
+```
+
+
+
+
+```{r}
+# pheatmap::pheatmap(
+#   log_tpm,
+#   scale = "row",
+#   clustering_distance_rows = "euclidean",
+#   clustering_distance_cols = "euclidean",
+#   clustering_method = "complete",
+#   fontsize_row = 10,
+#   fontsize_col = 8
+# )
+
+```
+
+
+
+
+```{r}
+# write.csv(
+#   meta_aligned[, c("sample_id", "treatment", "tissue", "layout")],
+#   "sample_metadata.csv",
+#   row.names = FALSE
+# )
+
+```
+
+
+
+
+```{r}
+#remove _tpm from column names so that they match metadata
+colnames(tpm_matrix) <- gsub("_tpm$", "", colnames(tpm_matrix))
+
+```
+
+
+
+
+
+```{r}
+#load your metadata
+library(readxl)
+meta_raw <- read_xlsx("hordeum_vulgare_10520.xlsx")
+
+```
+
+
+
+
+
+
+```{r}
+# what are column names
+colnames(meta_raw)
+
+```
+
+
+
+
+
+```{r}
+# i want to see how many sheets of data are in the excel file
+excel_sheets("hordeum_vulgare_10520.xlsx")
+
+```
+
+
+
+
+
+```{r}
+#load necessary libraries before data cleaning
+library(dplyr)
+library(magrittr)  # makes sure %>% is available
+
+
+```
+
+
+
+
+
+
+```{r}
+#i want to read in a specific sheet from the excel file
+meta_raw <- read_xlsx("hordeum_vulgare_10520.xlsx", sheet = "Sheet1")
+
+```
+
+
+
+
+
+```{r}
+
+#clean/standardize metadata (use your real columns)
+meta <- meta_raw %>%
+  rename(
+    sample_id = Run,     # SRR/DRR/ERR
+    tissue    = sample   # your tissue column is named sample
+  ) %>%
+  mutate(
+    sample_id = as.character(sample_id),
+    treatment = trimws(as.character(treatment)),
+    layout    = tolower(trimws(as.character(layout))),
+    tissue    = tolower(trimws(as.character(tissue)))
+  ) %>%
+  distinct(sample_id, .keep_all = TRUE)
+
+
+```
+
+
+
+
+
+
+```{r}
+# checking the data
+dim(meta)
+head(meta[, c("sample_id","treatment","tissue","layout")])
+
+
+```
+
+
+
+
+
+
+```{r}
+# keep only samples that are present in the TPM matrix, one row per sample_id
+meta_keep <- meta %>%
+  filter(sample_id %in% colnames(tpm_matrix)) %>%
+  distinct(sample_id, .keep_all = TRUE)
+
+
+```
+
+
+
+
+
+
+```{r}
+# keep only samples that are present in the TPM matrix, one row per sample_id
+meta_keep <- meta %>%
+  filter(sample_id %in% colnames(tpm_matrix)) %>%
+  distinct(sample_id, .keep_all = TRUE)
+
+```
+
+
+
+
+
+
+```{r}
+# order rows of metadata to match the TPM column order
+ord  <- match(colnames(tpm_matrix), meta_keep$sample_id)
+keep <- !is.na(ord)
+
+
+```
+
+
+
+
+
+
+```{r}
+# apply the same filter/order to both objects
+tpm_matrix   <- tpm_matrix[, keep, drop = FALSE]
+meta_aligned <- meta_keep[ord[keep], ]
+
+
+```
+
+
+
+
+
+```{r}
+#save  the aligned metadata in excel format for future use
+#load library for writing excel files
+
+#library(openxlsx)
+#write.xlsx(meta_aligned, "aligned_metadata.xlsx", rowNames = FALSE)
+
+```
+
+
+
+
+
+```{r}
+# sanity checks
+ncol(tpm_matrix)            # should equal:
+nrow(meta_aligned)          # ...this
+sum(is.na(meta_aligned$sample_id))  # should be 0
+head(meta_aligned[, c("sample_id","treatment","tissue","layout")])
+
+```
+
+
+
+
+
+
+```{r}
+# log1p-transform and transpose -> rows = samples, cols = genes
+# RNA-seq TPM values can vary hugely — some genes have TPMs of 0.1, others 10,000+.
+#Without transforming, the few highly expressed genes dominate the analysis.
+#It stabilizes variance (so big and small expression values are comparable).
+
+log_tpm <- t(log1p(tpm_matrix))   # big object: 10096 x ~37962
+
+
+```
+
+
+
+
+
+
+```{r}
+# remove genes with zero variance (constant across all samples)
+# This finds genes that have no change across samples — i.e., their expression is constant everywhere.
+# Removing zero-variance genes keeps only the informative ones — genes that actually differ between samples — improving PCA/UMAP clarity and speed.
+gene_var <- apply(log_tpm, 2, var)
+sum_zero_var <- sum(gene_var == 0)         # how many genes removed?
+log_tpm_f <- log_tpm[, gene_var > 0, drop = FALSE]
+
+
+```
+
+
+
+
+
+
+```{r}
+#  quick checks
+ncol_before <- ncol(log_tpm)
+ncol_after  <- ncol(log_tpm_f)
+cat("genes before:", ncol_before, "\ngenes after:", ncol_after,
+    "\nzero-variance genes removed:", sum_zero_var, "\n")
+
+
+```
+
+
+
+
+
+
+```{r}
+# run PCA on log-transformed TPM
+pca_res <- prcomp(log_tpm_f, center = TRUE, scale. = TRUE)
+
+
+```
+
+
+
+
+
+
+```{r}
+# variance explained by first few PCs
+pc_var <- summary(pca_res)$importance[2, 1:6] * 100
+pc_var
+
+
+```
+
+
+
+
+
+```{r}
+
+library(dplyr)
+meta2 <- meta_aligned %>%
+  mutate(
+    sra_study = `SRA Study`,
+    developmental_stage = as.character(developmental_stage)
+  )
+
+```
+
+
+
+
+
+
+```{r}
+
+keep_known <- !is.na(meta2$developmental_stage) & meta2$developmental_stage != "" &
+              !is.na(meta2$sra_study) & meta2$sra_study != ""
+
+meta_known <- meta2[keep_known, , drop = FALSE]
+
+```
+
+
+
+
+
+
+```{r}
+# keep only the first 50 PCs for samples with known developmental stage
+X50 <- as.data.frame(pca_res$x[keep_known, 1:50, drop = FALSE])
+y <- factor(meta_known$developmental_stage)
+
+```
+
+
+
+
+
+```{r}
+#sanity check
+dim(X50)  # should be (number of known samples) x 50
+table(y) # should equal number of rows in X50_all
+#number of unique studies in known samples
+length(unique(meta_known$sra_study))
+
+```
+
+
+
+
+```{r}
+library(randomForest)
+library(caret)
+
+set.seed(123)
+
+# remove transition BEFORE modeling 
+keep_stage <- y != "transition"
+X50_stage <- X50[keep_stage, , drop = FALSE]
+y_stage <- droplevels(y[keep_stage])
+meta_stage <- meta_known[keep_stage, , drop = FALSE]
+
+# study-aware 80/20 split
+studies <- unique(meta_stage$sra_study)
+test_studies <- sample(studies, size = round(0.2 * length(studies)))
+train_studies <- setdiff(studies, test_studies)
+
+train_idx <- meta_stage$sra_study %in% train_studies
+test_idx  <- meta_stage$sra_study %in% test_studies
+
+X_train <- X50_stage[train_idx, , drop = FALSE]
+y_train <- y_stage[train_idx]
+
+X_test  <- X50_stage[test_idx, , drop = FALSE]
+y_test  <- y_stage[test_idx]
+
+# sanity checks
+dim(X_train); dim(X_test)
+length(unique(meta_stage$sra_study[train_idx]))
+length(unique(meta_stage$sra_study[test_idx]))
+
+
+```
+
+
+
+
+```{r}
+ # train RF without transition by 50 PCs
+rf_stage <- randomForest(
+  x = X_train,
+  y = y_train,
+  ntree = 500,
+  importance = TRUE
+)
+
+# predictions + confusion matrix
+pred_test <- predict(rf_stage, X_test)
+cm_stage <- confusionMatrix(pred_test, y_test)
+cm_stage
+
+
+
+```
+
+
+
+
+
+```{r}
+# Now do the same thing but with all known samples (including transition) to predict developmental stage (including transition)
+
+# set.seed(123)
+# 
+# studies <- unique(meta_known$sra_study)
+# test_studies <- sample(studies, size = round(0.2 * length(studies)))
+# train_studies <- setdiff(studies, test_studies)
+# 
+# train_idx <- meta_known$sra_study %in% train_studies
+# test_idx  <- meta_known$sra_study %in% test_studies
+# 
+# X_train <- X50[train_idx, , drop = FALSE]
+# y_train <- y[train_idx]
+# 
+# X_test  <- X50[test_idx, , drop = FALSE]
+# y_test  <- y[test_idx]
+# 
+# dim(X_train); dim(X_test)
+# length(unique(meta_known$sra_study[train_idx]))
+# length(unique(meta_known$sra_study[test_idx]))
+
+
+```
+
+
+
+
+```{r}
+# Train a random forest classifier using the first 50 PCs to predict treatment
+# library(randomForest)
+# library(caret)
+# 
+# set.seed(123)
+# 
+# rf50 <- randomForest(
+#   x = X_train,
+#   y = y_train,
+#   ntree = 500,
+#   importance = TRUE
+# )
+# 
+# pred_test <- predict(rf50, X_test)
+# cm50 <- confusionMatrix(pred_test, y_test)
+# cm50
+
+
+```
+#including transition
+
+
+
+
+
+```{r}
+# #this is with transition included
+# prob_test50 <- predict(rf50, X_test, type = "prob")
+# head(prob_test50)
+
+
+```
+#including transition
+
+
+
+
+```{r}
+# Train a random forest classifier using the first 50 PCs to predict developmental stage (excluding transition)  
+# prob_stage <- predict(rf_stage, X_test, type = "prob") makes the model output probabilities for each class instead of just the predicted class.
+
+prob_stage <- predict(rf_stage, X_test, type = "prob")
+head(prob_stage)
+
+```
+#excluding transition
+
+
+
+```{r}
+# 10-fold study-aware CV for developmental stage prediction (excluding transition)
+set.seed(123)
+
+studies <- unique(meta_stage$sra_study)
+folds <- createFolds(studies, k = 10, list = TRUE)
+
+acc_vec <- numeric(10)
+kappa_vec <- numeric(10)
+
+for (k in 1:10) {
+
+  test_studies <- studies[folds[[k]]]
+
+  test_idx  <- meta_stage$sra_study %in% test_studies
+  train_idx <- !test_idx
+
+  X_train <- X50_stage[train_idx, , drop = FALSE]
+  y_train <- y_stage[train_idx]
+
+  X_test  <- X50_stage[test_idx, , drop = FALSE]
+  y_test  <- y_stage[test_idx]
+
+  rf <- randomForest(
+    x = X_train,
+    y = y_train,
+    ntree = 500
+  )
+
+  pred <- predict(rf, X_test)
+  cm <- confusionMatrix(pred, y_test)
+
+  acc_vec[k] <- as.numeric(cm$overall["Accuracy"])
+  kappa_vec[k] <- as.numeric(cm$overall["Kappa"])
+}
+
+# CV summary
+mean(acc_vec); sd(acc_vec)
+mean(kappa_vec); sd(kappa_vec)
+
+
+```
+
+
+
+
+
+```{r}
+# CV loop
+# 
+# for (k in 1:50) {
+# 
+#   test_studies <- study_folds$sra_study[study_folds$fold == k]
+#   
+#   test_idx  <- meta_known$sra_study %in% test_studies
+#   train_idx <- !test_idx
+#   
+#   X_train <- X50[train_idx, ]
+#   y_train <- y[train_idx]
+#   
+#   X_test <- X50[test_idx, ]
+#   y_test <- y[test_idx]
+#   
+#   rf <- randomForest(
+#     x = X_train,
+#     y = y_train,
+#     ntree = 500
+#   )
+#   
+#   pred <- predict(rf, X_test)
+#   
+#   cm <- confusionMatrix(pred, y_test)
+#   
+#   acc_vec[k] <- cm$overall["Accuracy"]
+#   kappa_vec[k] <- cm$overall["Kappa"]
+# }
+
+
+```
+
+
+
+#10 PCs for developmental stage prediction (excluding transition)
+
+```{r}
+# keep only the first 10 PCs for samples with known developmental stage
+X10 <- as.data.frame(pca_res$x[keep_known, 1:10, drop = FALSE])
+y <- factor(meta_known$developmental_stage)
+
+```
+
+
+
+
+```{r}
+library(randomForest)
+library(caret)
+
+set.seed(123)
+
+# remove transition BEFORE modeling 
+keep_stage <- y != "transition"
+X10_stage <- X10[keep_stage, , drop = FALSE]
+y_stage <- droplevels(y[keep_stage])
+meta_stage <- meta_known[keep_stage, , drop = FALSE]
+
+# study-aware 80/20 split
+studies <- unique(meta_stage$sra_study)
+test_studies <- sample(studies, size = round(0.2 * length(studies)))
+train_studies <- setdiff(studies, test_studies)
+
+train_idx <- meta_stage$sra_study %in% train_studies
+test_idx  <- meta_stage$sra_study %in% test_studies
+
+X_train <- X10_stage[train_idx, , drop = FALSE]
+y_train <- y_stage[train_idx]
+
+X_test  <- X10_stage[test_idx, , drop = FALSE]
+y_test  <- y_stage[test_idx]
+
+# sanity checks
+dim(X_train); dim(X_test)
+length(unique(meta_stage$sra_study[train_idx]))
+length(unique(meta_stage$sra_study[test_idx]))
+
+
+
+```
+
+
+
+
+```{r}
+ # train RF without transition by 10 PCs
+rf_stage <- randomForest(
+  x = X_train,
+  y = y_train,
+  ntree = 500,
+  importance = TRUE
+)
+
+# predictions + confusion matrix
+pred_test <- predict(rf_stage, X_test)
+cm_stage <- confusionMatrix(pred_test, y_test)
+cm_stage
+
+
+```
+
+
+
+
+```{r}
+#probabilities for the 10 PC model
+prob_stage_10 <- predict(rf_stage, X_test, type = "prob")
+head(prob_stage_10)
+
+```
+
+
+```{r}
+# 10-fold CV with study-aware folds (excluding transition) for 10 PCs
+set.seed(123)
+studies <- unique(meta_stage$sra_study)
+folds <- createFolds(studies, k = 10, list = TRUE)
+acc_vec <- numeric(length(folds))
+kappa_vec <- numeric(length(folds))
+
+for ( k in 1:10) {
+  test_studies <- studies[folds[[k]]]
+  test_idx  <- meta_stage$sra_study %in% test_studies
+  train_idx <- !test_idx
+
+  X_train <- X10_stage[train_idx, , drop = FALSE]
+  y_train <- y_stage[train_idx]
+
+  X_test  <- X10_stage[test_idx, , drop = FALSE]
+  y_test  <- y_stage[test_idx]
+
+  rf_cv <- randomForest(
+    x = X_train,
+    y = y_train,
+    ntree = 500
+  )
+
+  pred <- predict(rf_cv, X_test, type = "response")
+  cm <- confusionMatrix(pred, y_test)
+
+  acc_vec[k] <- as.numeric(cm$overall["Accuracy"])
+  kappa_vec[k] <- as.numeric(cm$overall["Kappa"])
+}
+
+mean(acc_vec); sd(acc_vec)
+mean(kappa_vec); sd(kappa_vec)  
+
+```
+
+
+
+
+
+#20 PCs for developmental stage prediction (excluding transition)
+```{r}
+# keep only the first 20 PCs for samples with known developmental stage
+X20 <- as.data.frame(pca_res$x[keep_known, 1:20, drop = FALSE])
+y <- factor(meta_known$developmental_stage)
+
+```
+
+
+
+
+
+```{r}
+library(randomForest)
+library(caret)
+
+set.seed(123)
+
+# remove transition BEFORE modeling
+keep_stage <- y != "transition"
+X20_stage <- X20[keep_stage, , drop = FALSE]
+y_stage <- droplevels(y[keep_stage])
+meta_stage <- meta_known[keep_stage, , drop = FALSE]  
+
+# study-aware 80/20 split
+studies <- unique(meta_stage$sra_study)
+test_studies <- sample(studies, size = round(0.2 * length(studies)))
+train_studies <- setdiff(studies, test_studies)
+
+train_idx <- meta_stage$sra_study %in% train_studies
+test_idx  <- meta_stage$sra_study %in% test_studies
+
+X_train <- X20_stage[train_idx, , drop = FALSE]
+y_train <- y_stage[train_idx]
+
+X_test  <- X20_stage[test_idx, , drop = FALSE]
+y_test  <- y_stage[test_idx]  
+
+# sanity checks
+dim(X_train); dim(X_test)
+length(unique(meta_stage$sra_study[train_idx]))
+length(unique(meta_stage$sra_study[test_idx]))
+
+
+```
+
+
+
+
+
+```{r}
+# train RF without transition by 20 PCs
+rf_stage <- randomForest(
+  x = X_train,
+  y = y_train,
+  ntree = 500,
+  importance = TRUE
+)
+
+# predictions + confusion matrix
+pred_test <- predict(rf_stage, X_test)
+cm_stage <- confusionMatrix(pred_test, y_test)
+cm_stage
+
+
+```
+
+
+
+
+
+
+
+```{r}
+# probabilities for the 20 PC model
+prob_stage_20 <- predict(rf_stage, X_test, type = "prob")
+head(prob_stage_20)
+
+```
+
+
+
+
+
+```{r}
+# 10-fold CV with study-aware folds (excluding transition) for 20 PCs
+set.seed(123)
+studies <- unique(meta_stage$sra_study)
+folds <- createFolds(studies, k = 10, list = TRUE)
+acc_vec <- numeric(length(folds))
+kappa_vec <- numeric(length(folds)) 
+
+for (k in 1:10) {
+  test_studies <- studies[folds[[k]]]
+  test_idx  <- meta_stage$sra_study %in% test_studies
+  train_idx <- !test_idx
+
+  X_train <- X20_stage[train_idx, , drop = FALSE]
+  y_train <- y_stage[train_idx]
+
+  X_test  <- X20_stage[test_idx, , drop = FALSE]
+  y_test  <- y_stage[test_idx]
+
+  rf_cv <- randomForest(
+    x = X_train,
+    y = y_train,
+    ntree = 500
+  )
+
+  pred <- predict(rf_cv, X_test, type = "response")
+  cm <- confusionMatrix(pred, y_test)
+
+  acc_vec[k] <- as.numeric(cm$overall["Accuracy"])
+  kappa_vec[k] <- as.numeric(cm$overall["Kappa"])
+}
+
+mean(acc_vec); sd(acc_vec)
+mean(kappa_vec); sd(kappa_vec)  
+
+
+
+```
+
+
+
+
+
+
+```{r}
+# keep only the first 100 PCs for samples with known developmental stage
+X100 <- as.data.frame(pca_res$x[keep_known, 1:100, drop = FALSE])
+y <- factor(meta_known$developmental_stage)
+
+```
+
+
+
+
+```{r}
+library(randomForest)
+library(caret)
+
+set.seed(123) 
+  
+# remove transition BEFORE modeling
+keep_stage <- y != "transition"
+X100_stage <- X100[keep_stage, , drop = FALSE]
+y_stage <- droplevels(y[keep_stage])
+meta_stage <- meta_known[keep_stage, , drop = FALSE]
+
+# study-aware 80/20 split
+studies <- unique(meta_stage$sra_study)
+test_studies <- sample(studies, size = round(0.2 * length(studies)))
+train_studies <- setdiff(studies, test_studies) 
+
+train_idx <- meta_stage$sra_study %in% train_studies
+test_idx  <- meta_stage$sra_study %in% test_studies
+
+X_train <- X100_stage[train_idx, , drop = FALSE]
+y_train <- y_stage[train_idx]
+
+X_test  <- X100_stage[test_idx, , drop = FALSE]
+y_test  <- y_stage[test_idx]
+
+# sanity checks
+dim(X_train); dim(X_test)
+length(unique(meta_stage$sra_study[train_idx]))
+length(unique(meta_stage$sra_study[test_idx]))
+
+
+```
+
+
+
+
+
+```{r}
+# train RF without transition by 100 PCs
+rf_stage <- randomForest(
+  x = X_train,
+  y = y_train,
+  ntree = 500,
+  importance = TRUE
+) 
+
+# predictions + confusion matrix
+pred_test <- predict(rf_stage, X_test)
+cm_stage <- confusionMatrix(pred_test, y_test)
+cm_stage
+
+
+
+```
+
+
+
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+library(ggplot2)
+
+summary_stage <- data.frame(
+  PCs = factor(50, levels = c(50)),  # only PC=50 exists now
+
+  test_acc   = 0.7967,
+  test_kappa = 0.6145,
+
+  cv_acc     = 0.8662,
+  cv_acc_sd  = 0.1044,
+
+  cv_kappa    = 0.7410,
+  cv_kappa_sd = 0.1926
+)
+
+summary_stage
+
+```
+
+
+
+
+```{r}
+p_acc_stage <- ggplot(summary_stage, aes(x = PCs, group = 1)) +
+  geom_errorbar(
+    aes(ymin = cv_acc - cv_acc_sd, ymax = cv_acc + cv_acc_sd),
+    width = 0.15, alpha = 0.6
+  ) +
+  geom_point(aes(y = cv_acc, shape = "CV mean"), size = 3) +
+  geom_point(aes(y = test_acc, shape = "Test"), size = 3) +
+  ylim(0, 1) +
+  labs(
+    title = "Developmental stage prediction (SMART split)",
+    x = "Number of PCs used",
+    y = "Accuracy",
+    shape = ""
+  ) +
+  theme_minimal()
+
+p_acc_stage
+
+```
+
+
+```{r}
+p_kappa_stage <- ggplot(summary_stage, aes(x = PCs, group = 1)) +
+  geom_errorbar(
+    aes(ymin = cv_kappa - cv_kappa_sd, ymax = cv_kappa + cv_kappa_sd),
+    width = 0.15, alpha = 0.6
+  ) +
+  geom_point(aes(y = cv_kappa, shape = "CV mean"), size = 3) +
+  geom_point(aes(y = test_kappa, shape = "Test"), size = 3) +
+  ylim(0, 1) +
+  labs(
+    title = "Developmental stage prediction (SMART split)",
+    x = "Number of PCs used",
+    y = "Kappa",
+    shape = ""
+  ) +
+  theme_minimal()
+
+p_kappa_stage
+
+
+```
+
+
+
+
+#stupid way
+
+```{r}
+# Stupid split: random 80/20 by sample (not by study)
+library(randomForest)
+library(caret)
+
+set.seed(123)
+
+n <- nrow(X50_stage)
+train_idx <- sample(seq_len(n), size = round(0.8 * n))
+test_idx  <- setdiff(seq_len(n), train_idx)
+
+X_train <- X50_stage[train_idx, , drop = FALSE]
+y_train <- y_stage[train_idx]
+
+X_test  <- X50_stage[test_idx, , drop = FALSE]
+y_test  <- y_stage[test_idx]
+
+dim(X_train); dim(X_test)
+
+
+
+```
+
+
+
+```{r}
+
+length(y_stage)
+
+```
+
+#2986 + 747 = 3733 total samples with known developmental stage excluding transition. So 80% of 3733 is about 2986 samples in training and 747 in testing.
+
+
+
+
+```{r}
+# random forest with stupid split 
+set.seed(123)
+
+rf50_stage_stupid <- randomForest(
+  x = X_train,
+  y = y_train,
+  ntree = 500,
+  importance = TRUE
+)
+
+pred_test <- predict(rf50_stage_stupid, X_test)
+cm_stage_stupid <- confusionMatrix(pred_test, y_test)
+cm_stage_stupid
+
+
+```
+
+
+
+
+
+
+```{r}
+# probabilities for the stupid split model
+prob_stage_stupid <- predict(rf50_stage_stupid, X_test, type = "prob")
+head(prob_stage_stupid)
+
+
+```
+
+
+
+
+
+```{r}
+# 10-fold CV with study-aware folds (excluding transition)
+set.seed(123)
+
+folds <- createFolds(y_stage, k = 10, list = TRUE)
+acc_vec <- numeric(length(folds))
+kappa_vec <- numeric(length(folds))
+
+for (i in seq_along(folds)) {
+
+  test_idx  <- folds[[i]]
+  train_idx <- setdiff(seq_len(nrow(X50_stage)), test_idx)
+
+  rf_cv <- randomForest(
+    x = X50_stage[train_idx, , drop = FALSE],
+    y = y_stage[train_idx],
+    ntree = 500
+  )
+
+  pred <- predict(rf_cv, X50_stage[test_idx, , drop = FALSE])
+  cm <- confusionMatrix(pred, y_stage[test_idx])
+
+  acc_vec[i] <- as.numeric(cm$overall["Accuracy"])
+  kappa_vec[i] <- as.numeric(cm$overall["Kappa"])
+}
+
+mean(acc_vec); sd(acc_vec)
+mean(kappa_vec); sd(kappa_vec)
+
+
+```
+
