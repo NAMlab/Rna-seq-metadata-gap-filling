@@ -1,0 +1,168 @@
+
+```{r}
+getwd()
+
+```
+
+
+```{r}
+#set working directory
+setwd("C:/Users/yarram/Documents/Rna-seq-metadata-gap-filling/barley_rna_seq_analysis")
+
+```
+
+
+
+
+```{r}
+#load necessary libraries
+#loading libraries
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(umap)
+library(sva)
+library(limma)
+library(factoextra)
+library(pheatmap)
+
+
+```
+
+
+
+
+
+```{r}
+library(ggplot2)
+
+# Create a summary data frame with the provided data
+# here, i manually creating a summary dataframe from the results obtained from previous analysis
+#so that we can use it for plotting to compare test and CV results of Random Forest model performance vs number of PCs
+
+summary_df <- data.frame(
+  PCs = c(10, 20, 50, 100),
+
+  test_acc   = c(0.8363, 0.8272, 0.8573, 0.8573),
+  test_kappa = c(0.7794, 0.7699, 0.8075, 0.8083),
+
+  cv_acc     = c(0.7629103, 0.7629103, 0.7605146, 0.7613606),
+  cv_acc_sd  = c(0.2001379, 0.2001379, 0.2114176, 0.2062091),
+
+  cv_kappa    = c(0.6728584, 0.6728584, 0.6765530, 0.6787282),
+  cv_kappa_sd = c(0.2489090, 0.2489090, 0.2534176, 0.2406590)
+)
+
+summary_df
+
+
+```
+
+
+
+
+
+```{r}
+#line plots for accuracy and kappa vs number of PCs
+
+p_acc <- ggplot(summary_df, aes(x = PCs)) +
+  geom_point(aes(y = test_acc, shape = "Test accuracy"), size = 3) +
+  geom_line(aes(y = test_acc, linetype = "Test accuracy")) +
+
+  geom_point(aes(y = cv_acc, shape = "CV mean accuracy"), size = 3) +
+  geom_line(aes(y = cv_acc, linetype = "CV mean accuracy")) +
+  geom_errorbar(aes(ymin = cv_acc - cv_acc_sd, ymax = cv_acc + cv_acc_sd),
+                width = 4, alpha = 0.7) +
+
+  scale_x_continuous(breaks = summary_df$PCs) +
+  labs(
+    title = "Random Forest performance vs number of PCs (Tissue, SMART split)",
+    x = "Number of PCs used",
+    y = "Accuracy",
+    shape = "",
+    linetype = ""
+  ) +
+  theme_minimal()
+
+p_acc
+
+
+
+```
+
+#Test accuracy increases slightly from PC10 → PC50
+
+#After ~50 PCs, performance plateaus
+
+#CV mean accuracy is:
+
+#lower than test accuracy (this is GOOD and expected)
+
+#very similar for PC20, PC50, PC100
+
+#CV standard deviation is large → indicates heterogeneity across studies
+
+
+
+
+
+
+```{r}
+# Kappa plot
+p_kappa <- ggplot(summary_df, aes(x = PCs)) +
+  geom_point(aes(y = test_kappa, shape = "Test kappa"), size = 3) +
+  geom_line(aes(y = test_kappa, linetype = "Test kappa")) +
+
+  geom_point(aes(y = cv_kappa, shape = "CV mean kappa"), size = 3) +
+  geom_line(aes(y = cv_kappa, linetype = "CV mean kappa")) +
+  geom_errorbar(aes(ymin = cv_kappa - cv_kappa_sd, ymax = cv_kappa + cv_kappa_sd),
+                width = 4, alpha = 0.7) +
+
+  scale_x_continuous(breaks = summary_df$PCs) +
+  labs(
+    title = "Random Forest kappa vs number of PCs (Tissue, SMART split)",
+    x = "Number of PCs used",
+    y = "Kappa",
+    shape = "",
+    linetype = ""
+  ) +
+  theme_minimal()
+
+p_kappa
+
+
+```
+
+
+
+#Kappa measures agreement beyond random guessing
+
+#Rough interpretation:
+#0.6–0.8 → substantial
+#0.8 → almost perfect
+
+#Test kappa increases from PC10 → PC50
+#Plateaus at PC50–PC100
+#CV kappa stays around ~0.67–0.69#Kappa measures agreement beyond random guessing
+
+#Rough interpretation:
+#0.6–0.8 → substantial
+#0.8 → almost perfect
+
+#Test kappa increases from PC10 → PC50
+#Plateaus at PC50–PC100
+#CV kappa stays around ~0.67–0.69
+
+
+
+
+```{r}
+# save plots to figures folder
+# ggsave(C:/Users/yarram/Documents/Rna-seq-metadata-gap-filling/barley_rna_seq_analysis/figures/rf_performance_vs_pcs_tissue_smart_split_accuracy.png,
+#        plot = p_acc, width = 8, height = 6)
+# ggsave(C:/Users/yarram/Documents/Rna-seq-metadata-gap-filling/barley_rna_seq_analysis/figures/rf_performance_vs_pcs_tissue_smart_split_kappa.png,
+#        plot = p_kappa, width = 8, height = 6)
+
+
+```
+
