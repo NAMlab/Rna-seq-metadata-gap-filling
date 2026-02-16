@@ -1,0 +1,138 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+```{r}
+#loading libraries
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(umap)
+library(sva)
+library(limma)
+library(factoextra)
+library(pheatmap)
+
+
+```
+
+
+
+```{r}
+getwd()
+
+```
+
+
+
+
+```{r}
+# created summary data frame with provided data
+summary_stage <- data.frame(
+  PCs = c(10, 20, 50, 100),
+
+  test_acc = c(0.7554, 0.7818, 0.7967, 0.8582),
+  test_kappa = c(0.5498, 0.5916, 0.6145, 0.7269),
+
+  cv_acc = c(0.8639, 0.8694, 0.8662, 0.8582),
+  cv_acc_sd = c(0.1120, 0.1006, 0.1044, 0.1065),
+
+  cv_kappa = c(0.7428, 0.7456, 0.7410, 0.7269),
+  cv_kappa_sd = c(0.2019, 0.1763, 0.1926, 0.2003)
+)
+
+summary_stage$PCs <- factor(summary_stage$PCs, levels = c(10, 20, 50, 100))
+
+summary_stage
+
+
+```
+
+
+
+
+
+```{r}
+library(ggplot2)
+
+# Accuracy plot
+p_acc_stage <- ggplot(summary_stage, aes(x = PCs, group = 1)) +
+  geom_errorbar(aes(ymin = cv_acc - cv_acc_sd, ymax = cv_acc + cv_acc_sd),
+                width = 0.15, alpha = 0.6) +
+  geom_line(aes(y = cv_acc, linetype = "CV mean"), linewidth = 0.7) +
+  geom_point(aes(y = cv_acc, shape = "CV mean"), size = 3) +
+  geom_line(aes(y = test_acc, linetype = "Test"), linewidth = 0.7) +
+  geom_point(aes(y = test_acc, shape = "Test"), size = 3) +
+  ylim(0, 1) +
+  labs(
+    title = "Random Forest performance vs number of PCs (Developmental stage)",
+    x = "Number of PCs used",
+    y = "Accuracy",
+    shape = "",
+    linetype = ""
+  ) +
+  theme_minimal()
+
+p_acc_stage
+
+
+
+```
+
+
+
+
+
+```{r}
+# Kappa plot
+p_kappa_stage <- ggplot(summary_stage, aes(x = PCs, group = 1)) +
+  geom_errorbar(aes(ymin = cv_kappa - cv_kappa_sd, ymax = cv_kappa + cv_kappa_sd),
+                width = 0.15, alpha = 0.6) +
+  geom_line(aes(y = cv_kappa, linetype = "CV mean"), linewidth = 0.7) +
+  geom_point(aes(y = cv_kappa, shape = "CV mean"), size = 3) +
+  geom_line(aes(y = test_kappa, linetype = "Test"), linewidth = 0.7) +
+  geom_point(aes(y = test_kappa, shape = "Test"), size = 3) +
+  ylim(0, 1) +
+  labs(
+    title = "Random Forest performance vs number of PCs (Developmental stage)",
+    x = "Number of PCs used",
+    y = "Kappa",
+    shape = "",
+    linetype = ""
+  ) +
+  theme_minimal()
+
+p_kappa_stage
+
+
+```
+
+
+
+
+
+```{r}
+
+
+```
+
+
+
+
+
+```{r}
+```
+
+
+
+
+
+```{r}
+```
+
+
+```{r}
+```
+
