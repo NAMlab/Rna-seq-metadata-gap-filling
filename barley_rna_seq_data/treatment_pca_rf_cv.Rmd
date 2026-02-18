@@ -1,0 +1,1336 @@
+
+ 
+```{r}
+getwd()
+
+```
+
+
+
+
+
+```{r}
+#set working directory
+setwd("C:/Users/yarram/Documents/Rna-seq-metadata-gap-filling/barley_rna_seq_data")
+
+```
+
+
+
+
+
+```{r}
+# Load necessary libraries
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(umap)
+library(sva)
+library(limma)
+library(factoextra)
+library(pheatmap)
+
+```
+
+
+
+
+
+```{r}
+# read in the four parts of the  data
+df <- read.delim("../barley_rna_seq_data/my_barley_input.2.part1.abundance.tsv.gz", header = TRUE, sep = "\t")
+df1 <- read.delim("../barley_rna_seq_data/my_barley_input.2.part2.abundance.tsv.gz", header = TRUE, sep = "\t")
+df2 <- read.delim("../barley_rna_seq_data/my_barley_input.2.part3.abundance.tsv.gz", header = TRUE, sep = "\t")
+df3 <- read.delim("../barley_rna_seq_data/my_barley_input.2.part4.abundance.tsv.gz", header = TRUE, sep = "\t")
+
+
+```
+
+
+
+
+
+
+```{r}
+# Rename the first column of each df to "gene"
+names(df)[1]   <- "gene"
+names(df1)[1]  <- "gene"
+names(df2)[1]  <- "gene"
+names( df3)[1] <- "gene"
+
+```
+
+
+
+
+
+```{r}
+
+library(dplyr)
+# Merge data frames by "gene" column using full_join
+df4 <- list(df, df1, df2, df3) |>
+  Reduce(function(x, y) full_join(x, y, by = "gene"), x = _)
+
+# (optional) if any duplicate sample names exist, make them unique
+colnames(df4) <- make.unique(colnames(df4))
+
+
+```
+
+
+
+
+
+
+```{r}
+# check for missing values
+sum(is.na(df4)) 
+
+```
+
+
+
+
+
+
+```{r}
+# extract TPM columns + gene column
+tpm_df <- df4 %>%
+  select(gene, ends_with("_tpm")) 
+
+
+```
+
+
+
+
+
+
+```{r}
+# quick check
+dim(tpm_df)
+head(tpm_df[, 1:6])
+
+
+```
+
+
+
+
+
+
+```{r}
+#set row names as gene names and remove gene column
+
+rownames(tpm_df) <- tpm_df$gene
+tpm_df <- tpm_df[, -1]
+#convert to matrix
+tpm_matrix <- as.matrix(tpm_df)
+mode(tpm_matrix) <- "numeric"
+
+
+```
+
+
+
+
+
+```{r}
+#check dimensions
+dim(tpm_matrix)
+
+```
+
+
+
+
+```{r}
+#check first few samples
+head(tpm_matrix[, 1:6])
+head(tpm_matrix[, 1:6])
+
+```
+
+
+
+
+
+
+```{r}
+#remove _tpm from column names so that they match metadata
+colnames(tpm_matrix) <- gsub("_tpm$", "", colnames(tpm_matrix))
+
+```
+
+
+
+
+
+```{r}
+#load your metadata
+library(readxl)
+meta_raw <- read_xlsx("hordeum_vulgare_10520.xlsx")
+
+```
+
+
+
+
+
+```{r}
+# what are column names
+colnames(meta_raw)
+
+
+```
+
+
+
+
+
+```{r}
+# i want to see how many sheets of data are in the excel file
+excel_sheets("hordeum_vulgare_10520.xlsx")
+
+```
+
+
+
+
+
+
+```{r}
+#load necessary libraries before data cleaning
+library(dplyr)
+library(magrittr)  # makes sure %>% is available
+
+
+```
+
+
+
+
+
+```{r}
+#i want to read in a specific sheet from the excel file
+meta_raw <- read_xlsx("hordeum_vulgare_10520.xlsx", sheet = "Sheet1")
+
+```
+
+
+
+
+
+
+```{r}
+
+#clean/standardize metadata (use your real columns)
+meta <- meta_raw %>%
+  rename(
+    sample_id = Run,     # SRR/DRR/ERR
+    tissue    = sample   # your tissue column is named sample
+  ) %>%
+  mutate(
+    sample_id = as.character(sample_id),
+    treatment = trimws(as.character(treatment)),
+    layout    = tolower(trimws(as.character(layout))),
+    tissue    = tolower(trimws(as.character(tissue)))
+  ) %>%
+  distinct(sample_id, .keep_all = TRUE)
+
+
+
+```
+
+
+
+
+
+
+```{r}
+# checking the data
+dim(meta)
+head(meta[, c("sample_id","treatment","tissue","layout")])
+
+
+```
+
+
+
+
+
+```{r}
+# keep only samples that are present in the TPM matrix, one row per sample_id
+meta_keep <- meta %>%
+  filter(sample_id %in% colnames(tpm_matrix)) %>%
+  distinct(sample_id, .keep_all = TRUE)
+
+
+```
+
+
+
+
+
+```{r}
+# keep only samples that are present in the TPM matrix, one row per sample_id
+meta_keep <- meta %>%
+  filter(sample_id %in% colnames(tpm_matrix)) %>%
+  distinct(sample_id, .keep_all = TRUE)
+
+
+```
+
+
+
+
+
+```{r}
+# order rows of metadata to match the TPM column order
+ord  <- match(colnames(tpm_matrix), meta_keep$sample_id)
+keep <- !is.na(ord)
+
+
+```
+
+
+
+
+
+
+```{r}
+# apply the same filter/order to both objects
+tpm_matrix   <- tpm_matrix[, keep, drop = FALSE]
+meta_aligned <- meta_keep[ord[keep], ]
+
+
+```
+
+
+
+
+
+
+```{r}
+
+# sanity checks
+ncol(tpm_matrix)            # should equal:
+nrow(meta_aligned)          # ...this
+sum(is.na(meta_aligned$sample_id))  # should be 0
+head(meta_aligned[, c("sample_id","treatment","tissue","layout")])
+
+```
+
+
+
+
+
+
+
+```{r}
+# log1p-transform and transpose -> rows = samples, cols = genes
+# RNA-seq TPM values can vary hugely — some genes have TPMs of 0.1, others 10,000+.
+#Without transforming, the few highly expressed genes dominate the analysis.
+#It stabilizes variance (so big and small expression values are comparable).
+
+log_tpm <- t(log1p(tpm_matrix))   # big object: 10096 x ~37962
+
+
+```
+
+
+
+
+
+```{r}
+# remove genes with zero variance (constant across all samples)
+# This finds genes that have no change across samples — i.e., their expression is constant everywhere.
+# Removing zero-variance genes keeps only the informative ones — genes that actually differ between samples — improving PCA/UMAP clarity and speed.
+gene_var <- apply(log_tpm, 2, var)
+sum_zero_var <- sum(gene_var == 0)         # how many genes removed?
+log_tpm_f <- log_tpm[, gene_var > 0, drop = FALSE]
+
+
+```
+
+
+
+
+
+```{r}
+#  quick checks
+ncol_before <- ncol(log_tpm)
+ncol_after  <- ncol(log_tpm_f)
+cat("genes before:", ncol_before, "\ngenes after:", ncol_after,
+    "\nzero-variance genes removed:", sum_zero_var, "\n")
+
+
+
+```
+
+
+
+
+
+
+```{r}
+# run PCA on log-transformed TPM
+pca_res <- prcomp(log_tpm_f, center = TRUE, scale. = TRUE)
+
+```
+
+
+
+
+
+
+```{r}
+# variance explained by first few PCs
+pc_var <- summary(pca_res)$importance[2, 1:6] * 100
+pc_var
+
+
+```
+
+
+
+
+
+
+```{r}
+#preapare data random forest 10 Pcs,only for know treatment
+library(dplyr)
+meta2 <- meta_aligned %>%
+  mutate(
+    sra_study = `SRA Study`,   # column name has a SPACE in your file
+    treatment = as.character(treatment)
+  )
+
+```
+
+
+
+
+
+```{r}
+# keep only samples with known treatment and SRA study
+keep_known <- !is.na(meta2$treatment) & meta2$treatment != "" & !is.na(meta2$sra_study) & meta2$sra_study != ""
+meta_known <- meta2[keep_known, , drop = FALSE]
+
+
+```
+
+
+
+
+
+```{r}
+# prepare data for random forest:
+
+X10 <- as.data.frame(pca_res$x[keep_known, 1:10, drop = FALSE])
+y  <- factor(meta_known$treatment)
+
+```
+
+
+
+
+
+```{r}
+# sanity checks
+dim(meta_known)
+table(meta_known$treatment)
+length(unique(meta_known$sra_study))
+
+```
+
+
+
+
+
+```{r}
+# group into fewer classes (edit mapping if you want)
+meta_known <- meta_known %>%
+  mutate(
+    treatment_group = case_when(
+      treatment == "control" ~ "control",
+
+      treatment %in% c("abiotic stress","drought","salt","heat","cold","oxidative stress") ~ "abiotic",
+      treatment %in% c("pathogen","symbiotic") ~ "biotic",
+
+      treatment %in% c("hormone treatment") ~ "hormone",
+      treatment %in% c("nutrient") ~ "nutrient",
+
+      treatment %in% c("biostimulant") ~ "biostimulant",
+      treatment %in% c("combined(sym/bio)") ~ "sym/bio",
+      treatment %in% c("genetic modification") ~ "geneticmodification",
+
+      TRUE ~ "other"
+    )
+  )
+
+```
+
+
+
+
+
+```{r}
+# check class distribution
+table(meta_known$treatment_group)
+
+```
+
+
+
+
+
+```{r}
+# for random forest, we want to focus on the main classes with enough samples. Adjust as needed.
+keep_main <- meta_known$treatment_group %in% c("control","abiotic","biotic")
+meta_treat <- meta_known[keep_main, , drop = FALSE]
+y <- droplevels(factor(meta_treat$treatment_group))
+
+table(y)
+
+```
+
+
+
+
+```{r}
+# prepare X matrix for random forest, keeping only samples with known treatment and in main classes
+X10 <- as.data.frame(pca_res$x[keep_known, 1:10, drop = FALSE])
+X10 <- X10[keep_main, , drop = FALSE]
+
+
+```
+
+
+
+
+
+
+```{r}
+# sanity checks
+table(y)
+dim(X10)
+length(unique(meta_treat$sra_study))
+
+```
+
+
+
+
+
+```{r}
+# split into training and test sets, ensuring samples from the same SRA study are in the same set
+set.seed(123)
+
+studies <- unique(meta_treat$sra_study)
+
+test_studies  <- sample(studies, size = round(0.2 * length(studies)))
+train_studies <- setdiff(studies, test_studies)
+
+train_idx <- meta_treat$sra_study %in% train_studies
+test_idx  <- meta_treat$sra_study %in% test_studies
+
+X_train <- X10[train_idx, , drop = FALSE]
+y_train <- droplevels(y[train_idx])
+
+X_test  <- X10[test_idx, , drop = FALSE]
+y_test  <- factor(y[test_idx], levels = levels(y_train))
+
+dim(X_train); dim(X_test)
+table(y_train)
+
+
+
+```
+
+
+
+
+```{r}
+# train random forestlibrary(randomForest)
+
+library(caret)
+
+set.seed(123)
+
+rf_treat <- randomForest(
+  x = X_train,
+  y = y_train,
+  ntree = 500,
+  importance = TRUE
+)
+
+pred_test <- predict(rf_treat, X_test)
+cm_treat  <- confusionMatrix(pred_test, y_test)
+
+cm_treat
+
+
+```
+
+
+
+
+```{r}
+# probabilitis
+prob_test10 <- predict(rf_treat, X_test, type = "prob")
+head(prob_test10)
+
+```
+
+
+
+
+```{r}
+# predicted class from probabilities
+pred_from_prob <- colnames(prob_test10)[max.col(prob_test10)]
+pred_from_prob <- factor(pred_from_prob, levels = levels(y_train))
+
+
+```
+
+
+
+
+
+```{r}
+#cv loop
+
+library(randomForest)
+library(caret)
+
+set.seed(123)
+
+studies <- unique(meta_treat$sra_study)
+folds   <- createFolds(studies, k = 10, list = TRUE)
+
+acc_vec   <- numeric(length(folds))
+kappa_vec <- numeric(length(folds))
+
+for (k in 1:10) {
+
+  test_studies <- studies[folds[[k]]]
+
+  test_idx  <- meta_treat$sra_study %in% test_studies
+  train_idx <- !test_idx
+
+  X_train <- X10[train_idx, , drop = FALSE]
+  y_train <- y[train_idx]
+
+  X_test  <- X10[test_idx, , drop = FALSE]
+  y_test  <- y[test_idx]
+
+ rf_cv <- randomForest(
+  x = X_train,
+  y = y_train,
+  ntree = 500,
+  classwt = 1 / table(y_train)
+)
+
+  pred <- predict(rf_cv, X_test, type = "response")
+  cm   <- confusionMatrix(pred, y_test)
+
+  acc_vec[k]   <- as.numeric(cm$overall["Accuracy"])
+  kappa_vec[k] <- as.numeric(cm$overall["Kappa"])
+}
+
+mean(acc_vec); sd(acc_vec)
+mean(kappa_vec); sd(kappa_vec)
+
+```
+
+
+
+```{r}
+# after adding the class weights, the class distribution
+prop.table(table(y))
+
+```
+
+
+
+#with 20 PCs
+
+```{r}
+# # prepare X matrix for random forest, keeping only samples with known treatment and in main classes
+X20 <- as.data.frame(pca_res$x[keep_known, 1:20, drop = FALSE])
+X20 <- X20[keep_main, , drop = FALSE]
+
+
+```
+
+
+
+
+```{r}
+# sanity checks
+table(y)
+dim(X20)
+length(unique(meta_treat$sra_study))
+
+```
+
+
+```{r}
+# group into fewer classes (edit mapping if you want)
+meta_known <- meta_known %>%
+  mutate(
+    treatment_group = case_when(
+      treatment == "control" ~ "control",
+
+      treatment %in% c("abiotic stress","drought","salt","heat","cold","oxidative stress") ~ "abiotic",
+      treatment %in% c("pathogen","symbiotic") ~ "biotic",
+
+      treatment %in% c("hormone treatment") ~ "hormone",
+      treatment %in% c("nutrient") ~ "nutrient",
+
+      treatment %in% c("biostimulant") ~ "biostimulant",
+      treatment %in% c("combined(sym/bio)") ~ "sym/bio",
+      treatment %in% c("genetic modification") ~ "geneticmodification",
+
+      TRUE ~ "other"
+    )
+  )
+
+```
+
+
+
+
+```{r}
+# check class distribution
+table(meta_known$treatment_group)
+
+```
+
+
+
+```{r}
+# for random forest, we want to focus on the main classes with enough samples. Adjust as needed.
+keep_main <- meta_known$treatment_group %in% c("control","abiotic","biotic")
+meta_treat <- meta_known[keep_main, , drop = FALSE]
+y <- droplevels(factor(meta_treat$treatment_group))
+
+table(y)
+
+```
+
+
+
+```{r}
+# prepare X matrix for random forest, keeping only samples with known treatment and in main classes
+X20 <- as.data.frame(pca_res$x[keep_known, 1:20, drop = FALSE])
+X20 <- X20[keep_main, , drop = FALSE]
+
+```
+
+
+
+
+```{r}
+# sanity checks
+table(y)
+dim(X20)
+length(unique(meta_treat$sra_study))
+
+```
+
+
+```{r}
+# split into training and test sets, ensuring samples from the same SRA study are in the same set
+set.seed(123)
+
+studies <- unique(meta_treat$sra_study)
+
+test_studies  <- sample(studies, size = round(0.2 * length(studies)))
+train_studies <- setdiff(studies, test_studies)
+
+train_idx <- meta_treat$sra_study %in% train_studies
+test_idx  <- meta_treat$sra_study %in% test_studies
+
+X_train <- X20[train_idx, , drop = FALSE]
+y_train <- droplevels(y[train_idx])
+
+X_test  <- X20[test_idx, , drop = FALSE]
+y_test  <- factor(y[test_idx], levels = levels(y_train))
+
+dim(X_train); dim(X_test)
+table(y_train)
+
+```
+
+
+```{r}
+# train random forestlibrary(randomForest)
+
+library(caret)
+
+set.seed(123)
+
+rf_treat <- randomForest(
+  x = X_train,
+  y = y_train,
+  ntree = 500,
+  importance = TRUE
+)
+
+pred_test <- predict(rf_treat, X_test)
+cm_treat  <- confusionMatrix(pred_test, y_test)
+
+cm_treat
+
+```
+
+
+```{r}
+# probabilitis
+prob_test20 <- predict(rf_treat, X_test, type = "prob")
+head(prob_test20)
+
+```
+
+
+```{r}
+#cv loop
+
+library(randomForest)
+library(caret)
+
+set.seed(123)
+
+studies <- unique(meta_treat$sra_study)
+folds   <- createFolds(studies, k = 10, list = TRUE)
+
+acc_vec   <- numeric(length(folds))
+kappa_vec <- numeric(length(folds))
+
+for (k in 1:10) {
+
+  test_studies <- studies[folds[[k]]]
+
+  test_idx  <- meta_treat$sra_study %in% test_studies
+  train_idx <- !test_idx
+
+  X_train <- X20[train_idx, , drop = FALSE]
+  y_train <- y[train_idx]
+
+  X_test  <- X20[test_idx, , drop = FALSE]
+  y_test  <- y[test_idx]
+
+ rf_cv <- randomForest(
+  x = X_train,
+  y = y_train,
+  ntree = 500,
+  classwt = 1 / table(y_train)
+)
+
+  pred <- predict(rf_cv, X_test, type = "response")
+  cm   <- confusionMatrix(pred, y_test)
+
+  acc_vec[k]   <- as.numeric(cm$overall["Accuracy"])
+  kappa_vec[k] <- as.numeric(cm$overall["Kappa"])
+}
+
+mean(acc_vec); sd(acc_vec)
+mean(kappa_vec); sd(kappa_vec)
+
+
+```
+
+
+#with 50 PCs
+
+```{r}
+# # prepare X matrix for random forest, keeping only samples with known treatment and in main classes
+X50 <- as.data.frame(pca_res$x[keep_known, 1:50, drop = FALSE])
+X50 <- X50[keep_main, , drop = FALSE]
+
+
+```
+
+
+
+```{r}
+# sanity checks
+table(y)
+dim(X50)
+length(unique(meta_treat$sra_study))
+
+```
+
+
+```{r}
+# split into training and test sets, ensuring samples from the same SRA study are in the same set
+set.seed(123)
+
+studies <- unique(meta_treat$sra_study)
+
+test_studies  <- sample(studies, size = round(0.2 * length(studies)))
+train_studies <- setdiff(studies, test_studies)
+
+train_idx <- meta_treat$sra_study %in% train_studies
+test_idx  <- meta_treat$sra_study %in% test_studies
+
+X_train <- X50[train_idx, , drop = FALSE]
+y_train <- droplevels(y[train_idx])
+
+X_test  <- X50[test_idx, , drop = FALSE]
+y_test  <- factor(y[test_idx], levels = levels(y_train))
+
+dim(X_train); dim(X_test)
+table(y_train)
+
+```
+
+
+
+```{r}
+# train random forestlibrary(randomForest)
+
+library(caret)
+
+set.seed(123)
+
+rf_treat <- randomForest(
+  x = X_train,
+  y = y_train,
+  ntree = 500,
+  importance = TRUE
+)
+
+pred_test <- predict(rf_treat, X_test)
+cm_treat  <- confusionMatrix(pred_test, y_test)
+
+cm_treat
+
+```
+
+
+```{r}
+# probabilitis
+prob_test50 <- predict(rf_treat, X_test, type = "prob")
+head(prob_test50)
+
+```
+
+
+```{r}
+#cv loop
+
+library(randomForest)
+library(caret)
+
+set.seed(123)
+
+studies <- unique(meta_treat$sra_study)
+folds   <- createFolds(studies, k = 10, list = TRUE)
+
+acc_vec   <- numeric(length(folds))
+kappa_vec <- numeric(length(folds))
+
+for (k in 1:10) {
+
+  test_studies <- studies[folds[[k]]]
+
+  test_idx  <- meta_treat$sra_study %in% test_studies
+  train_idx <- !test_idx
+
+  X_train <- X50[train_idx, , drop = FALSE]
+  y_train <- y[train_idx]
+
+  X_test  <- X50[test_idx, , drop = FALSE]
+  y_test  <- y[test_idx]
+
+ rf_cv <- randomForest(
+  x = X_train,
+  y = y_train,
+  ntree = 500,
+  classwt = 1 / table(y_train)
+)
+
+  pred <- predict(rf_cv, X_test, type = "response")
+  cm   <- confusionMatrix(pred, y_test)
+
+  acc_vec[k]   <- as.numeric(cm$overall["Accuracy"])
+  kappa_vec[k] <- as.numeric(cm$overall["Kappa"])
+}
+
+mean(acc_vec); sd(acc_vec)
+mean(kappa_vec); sd(kappa_vec)
+
+
+```
+
+
+
+
+# now i want to do this by extarcting 100 PCs
+```{r}
+# prepare data for random forest:
+X100 <- as.data.frame(pca_res$x[keep_known, 1:100, drop = FALSE])
+y  <- factor(meta_known$treatment)  
+
+```
+
+
+
+
+```{r}
+# sanity checks
+dim(meta_known)
+table(meta_known$treatment)
+length(unique(meta_known$sra_study))
+
+
+```
+
+
+
+
+
+```{r}
+# check class distribution
+table(meta_known$treatment_group)
+
+```
+
+
+
+
+
+
+```{r}
+# for random forest, we want to focus on the main classes with enough samples. Adjust as needed.
+keep_main <- meta_known$treatment_group %in% c("control","abiotic","biotic")
+meta_treat <- meta_known[keep_main, , drop = FALSE]
+y <- droplevels(factor(meta_treat$treatment_group))
+table(y)
+
+
+```
+
+
+
+
+
+
+```{r}
+# prepare X matrix for random forest, keeping only samples with known treatment and in main classes
+X100 <- as.data.frame(pca_res$x[keep_known, 1:100, drop = FALSE])
+X100 <- X100[keep_main, , drop = FALSE]
+
+
+```
+
+
+
+
+
+
+```{r}
+# sanity checks
+table(y)
+dim(X100)
+length(unique(meta_treat$sra_study))
+
+
+```
+
+
+
+
+
+
+```{r}
+# split into training and test sets, ensuring samples from the same SRA study are in the same set
+set.seed(123)
+
+studies <- unique(meta_treat$sra_study)
+
+test_studies  <- sample(studies, size = round(0.2 * length(studies)))
+train_studies <- setdiff(studies, test_studies)
+
+train_idx <- meta_treat$sra_study %in% train_studies
+test_idx  <- meta_treat$sra_study %in% test_studies
+
+X_train <- X100[train_idx, , drop = FALSE]
+y_train <- droplevels(y[train_idx])
+
+X_test  <- X100[test_idx, , drop = FALSE]
+y_test  <- factor(y[test_idx], levels = levels(y_train))
+
+dim(X_train); dim(X_test)
+table(y_train)
+
+
+```
+
+
+
+
+
+```{r}
+# train random forestlibrary(randomForest)
+library(randomForest)
+library(caret)
+set.seed(123)
+rf_treat_100 <- randomForest(
+  x = X_train,
+  y = y_train,
+  ntree = 500,
+  importance = TRUE
+)
+pred_test_100 <- predict(rf_treat_100, X_test)
+cm_treat_100  <- confusionMatrix(pred_test_100, y_test)
+cm_treat_100
+
+
+```
+
+
+
+
+
+
+```{r}
+# probabilitis
+prob_test50 <- predict(rf_treat, X_test, type = "prob")
+head(prob_test50)
+
+```
+
+
+
+
+
+```{r}
+#cv loop
+
+library(randomForest)
+library(caret)
+
+set.seed(123)
+
+studies <- unique(meta_treat$sra_study)
+folds   <- createFolds(studies, k = 10, list = TRUE)
+
+acc_vec   <- numeric(length(folds))
+kappa_vec <- numeric(length(folds))
+
+for (k in 1:10) {
+
+  test_studies <- studies[folds[[k]]]
+
+  test_idx  <- meta_treat$sra_study %in% test_studies
+  train_idx <- !test_idx
+
+  X_train <- X100[train_idx, , drop = FALSE]
+  y_train <- y[train_idx]
+
+  X_test  <- X100[test_idx, , drop = FALSE]
+  y_test  <- y[test_idx]
+
+ rf_cv <- randomForest(
+  x = X_train,
+  y = y_train,
+  ntree = 500,
+  classwt = 1 / table(y_train)
+)
+
+  pred <- predict(rf_cv, X_test, type = "response")
+  cm   <- confusionMatrix(pred, y_test)
+
+  acc_vec[k]   <- as.numeric(cm$overall["Accuracy"])
+  kappa_vec[k] <- as.numeric(cm$overall["Kappa"])
+}
+
+mean(acc_vec); sd(acc_vec)
+mean(kappa_vec); sd(kappa_vec)
+
+```
+
+
+
+
+
+#stupid -way for comparison
+```{r}
+library(randomForest)
+library(caret)
+
+set.seed(123)
+
+# Create folds randomly at sample level (NOT study-aware)
+folds <- createFolds(y, k = 10, list = TRUE)
+
+acc_vec_stupid <- numeric(length(folds))
+kappa_vec_stupid <- numeric(length(folds))
+
+for (k in 1:10) {
+  
+  test_idx  <- folds[[k]]
+  train_idx <- setdiff(seq_len(nrow(X100)), test_idx)
+  
+  X_train <- X100[train_idx, , drop = FALSE]
+  y_train <- y[train_idx]
+  
+  X_test  <- X100[test_idx, , drop = FALSE]
+  y_test  <- y[test_idx]
+  
+  rf_cv <- randomForest(
+    x = X_train,
+    y = y_train,
+    ntree = 500,
+    classwt = 1 / table(y_train)
+  )
+  
+  pred <- predict(rf_cv, X_test, type = "response")
+  cm   <- confusionMatrix(pred, y_test)
+  
+  acc_vec_stupid[k]   <- as.numeric(cm$overall["Accuracy"])
+  kappa_vec_stupid[k] <- as.numeric(cm$overall["Kappa"])
+}
+
+mean(acc_vec_stupid); sd(acc_vec_stupid)
+mean(kappa_vec_stupid); sd(kappa_vec_stupid)
+
+```
+
+
+
+
+
+#dot plots with error bars for CV mean, ± SD and test set performance for both splits
+```{r}
+#creating data frame 
+
+library(ggplot2)
+summary_compare <- data.frame(
+  split = c("SMART (study-aware)", "STUPID (sample-based)"),
+  
+  test_acc = c(0.4803, 0.9602338),
+  test_kappa = c(0.2337, 0.9167351),
+  
+  cv_acc = c(0.4437874, 0.9602338),
+  cv_acc_sd = c(0.1645924, 0.01551013),
+  
+  cv_kappa = c(0.07136937, 0.9167351),
+  cv_kappa_sd = c(0.1197868, 0.03280107)
+)
+
+summary_compare
+
+```
+
+
+
+
+
+
+```{r}
+# accuracy
+p_acc <- ggplot(summary_compare, aes(x = split)) +
+  geom_point(aes(y = cv_acc, shape = "CV mean"), size = 3) +
+  geom_errorbar(aes(ymin = cv_acc - cv_acc_sd, ymax = cv_acc + cv_acc_sd), width = 0.15) +
+  geom_point(aes(y = test_acc, shape = "Test"), size = 3) +
+  scale_y_continuous(limits = c(0, 1)) +
+  labs(
+    title = "Treatment (PC1–100): SMART vs STUPID (Accuracy)",
+    x = "Split strategy",
+    y = "Accuracy",
+    shape = ""
+  ) +
+  theme_minimal()
+
+p_acc
+
+```
+
+
+
+
+
+
+```{r}
+#kappa
+p_kappa <- ggplot(summary_compare, aes(x = split)) +
+  geom_point(aes(y = cv_kappa, shape = "CV mean"), size = 3) +
+  geom_errorbar(aes(ymin = cv_kappa - cv_kappa_sd, ymax = cv_kappa + cv_kappa_sd), width = 0.15) +
+  geom_point(aes(y = test_kappa, shape = "Test"), size = 3) +
+  scale_y_continuous(limits = c(0, 1)) +
+  labs(
+    title = "Treatment (PC1–100): SMART vs STUPID (Kappa)",
+    x = "Split strategy",
+    y = "Kappa",
+    shape = ""
+  ) +
+  theme_minimal()
+
+p_kappa
+
+```
+
+
+
+
+
+
+```{r}
+```
+
+
+
+
+
+
+```{r}
+```
+
+
+
+
+
+
+
+```{r}
+```
+
+
+
+
+
+
+
+```{r}
+```
+
+
+
+
+
+
+```{r}
+```
+
+
+
+
+
+
+
+```{r}
+```
+
+
+
+
+
+
+```{r}
+```
+
