@@ -991,8 +991,7 @@ mean(kappa_vec); sd(kappa_vec)
 
 
 
-
-
+#100 PCs for developmental stage prediction (excluding transition)  
 
 ```{r}
 # keep only the first 100 PCs for samples with known developmental stage
@@ -1000,6 +999,7 @@ X100 <- as.data.frame(pca_res$x[keep_known, 1:100, drop = FALSE])
 y <- factor(meta_known$developmental_stage)
 
 ```
+
 
 
 
@@ -1042,6 +1042,7 @@ length(unique(meta_stage$sra_study[test_idx]))
 
 
 
+
 ```{r}
 # train RF without transition by 100 PCs
 rf_stage <- randomForest(
@@ -1056,7 +1057,17 @@ pred_test <- predict(rf_stage, X_test)
 cm_stage <- confusionMatrix(pred_test, y_test)
 cm_stage
 
+```
 
+
+
+
+
+
+```{r}
+# probabilities for the 100 PC model
+prob_stage_100 <- predict(rf_stage, X_test, type = "prob")
+head(prob_stage_100)
 
 ```
 
@@ -1065,84 +1076,39 @@ cm_stage
 
 
 ```{r}
-```
+# 10-fold CV with study-aware folds (excluding transition) for 100 PCs
+set.seed(123)
+studies <- unique(meta_stage$sra_study)
+folds <- createFolds(studies, k = 10, list = TRUE)
+acc_vec <- numeric(length(folds))
+kappa_vec <- numeric(length(folds)) 
 
+for (k in 1:10) {
+  test_studies <- studies[folds[[k]]]
+  test_idx  <- meta_stage$sra_study %in% test_studies
+  train_idx <- !test_idx
 
-```{r}
-```
+  X_train <- X100_stage[train_idx, , drop = FALSE]
+  y_train <- y_stage[train_idx]
 
+  X_test  <- X100_stage[test_idx, , drop = FALSE]
+  y_test  <- y_stage[test_idx]
 
-```{r}
-```
+  rf_cv <- randomForest(
+    x = X_train,
+    y = y_train,
+    ntree = 500
+  )
 
+  pred <- predict(rf_cv, X_test, type = "response")
+  cm <- confusionMatrix(pred, y_test)
 
-```{r}
-```
+  acc_vec[k] <- as.numeric(cm$overall["Accuracy"])
+  kappa_vec[k] <- as.numeric(cm$overall["Kappa"])
+}
 
-
-```{r}
-library(ggplot2)
-
-summary_stage <- data.frame(
-  PCs = factor(50, levels = c(50)),  # only PC=50 exists now
-
-  test_acc   = 0.7967,
-  test_kappa = 0.6145,
-
-  cv_acc     = 0.8662,
-  cv_acc_sd  = 0.1044,
-
-  cv_kappa    = 0.7410,
-  cv_kappa_sd = 0.1926
-)
-
-summary_stage
-
-```
-
-
-
-
-```{r}
-p_acc_stage <- ggplot(summary_stage, aes(x = PCs, group = 1)) +
-  geom_errorbar(
-    aes(ymin = cv_acc - cv_acc_sd, ymax = cv_acc + cv_acc_sd),
-    width = 0.15, alpha = 0.6
-  ) +
-  geom_point(aes(y = cv_acc, shape = "CV mean"), size = 3) +
-  geom_point(aes(y = test_acc, shape = "Test"), size = 3) +
-  ylim(0, 1) +
-  labs(
-    title = "Developmental stage prediction (SMART split)",
-    x = "Number of PCs used",
-    y = "Accuracy",
-    shape = ""
-  ) +
-  theme_minimal()
-
-p_acc_stage
-
-```
-
-
-```{r}
-p_kappa_stage <- ggplot(summary_stage, aes(x = PCs, group = 1)) +
-  geom_errorbar(
-    aes(ymin = cv_kappa - cv_kappa_sd, ymax = cv_kappa + cv_kappa_sd),
-    width = 0.15, alpha = 0.6
-  ) +
-  geom_point(aes(y = cv_kappa, shape = "CV mean"), size = 3) +
-  geom_point(aes(y = test_kappa, shape = "Test"), size = 3) +
-  ylim(0, 1) +
-  labs(
-    title = "Developmental stage prediction (SMART split)",
-    x = "Number of PCs used",
-    y = "Kappa",
-    shape = ""
-  ) +
-  theme_minimal()
-
-p_kappa_stage
+mean(acc_vec); sd(acc_vec)
+mean(kappa_vec); sd(kappa_vec)  
 
 
 ```
@@ -1150,7 +1116,7 @@ p_kappa_stage
 
 
 
-#stupid way
+#stupid way by 50 PCs for developmental stage prediction (excluding transition) - random 80/20 split by sample, not by study 
 
 ```{r}
 # Stupid split: random 80/20 by sample (not by study)
@@ -1177,8 +1143,9 @@ dim(X_train); dim(X_test)
 
 
 
-```{r}
 
+```{r}
+# sanity checks
 length(y_stage)
 
 ```
@@ -1251,6 +1218,93 @@ for (i in seq_along(folds)) {
 
 mean(acc_vec); sd(acc_vec)
 mean(kappa_vec); sd(kappa_vec)
+
+
+```
+
+
+
+
+#dot plots with error bars for CV mean ± SD and test set performance for both splits
+```{r}
+library(ggplot2)
+
+dev_comp <- data.frame(
+  Split = c("SMART", "STUPID"),
+
+  # Test-set (confusionMatrix overall)
+  test_acc   = c(0.7967, 0.9920),
+  test_kappa = c(0.6145, 0.9855),
+
+  # 10-fold CV (mean ± sd)
+  cv_acc     = c(0.8661891, 0.9933033),
+  cv_acc_sd  = c(0.1043786, 0.003840477),
+  cv_kappa   = c(0.7410079, 0.9878995),
+  cv_kappa_sd= c(0.1926055, 0.006933309)
+)
+
+dev_comp$Split <- factor(dev_comp$Split, levels = c("SMART", "STUPID"))
+
+
+```
+
+
+
+
+
+
+```{r}
+# Accuracy plot
+
+p_acc <- ggplot(dev_comp, aes(x = Split)) +
+  geom_errorbar(aes(ymin = cv_acc - cv_acc_sd, ymax = cv_acc + cv_acc_sd),
+                width = 0.15, alpha = 0.8) +
+  geom_point(aes(y = cv_acc, shape = "CV mean"), size = 3) +
+  geom_point(aes(y = test_acc, shape = "Test"), size = 3) +
+  ylim(0, 1) +
+  labs(
+    title = "Developmental stage (PC1–50): SMART vs STUPID (Accuracy)",
+    x = "Split strategy",
+    y = "Accuracy",
+    shape = ""
+  ) +
+  theme_minimal()
+
+p_acc
+
+
+```
+
+
+
+
+
+```{r}
+# Kappa plot
+
+p_kappa <- ggplot(dev_comp, aes(x = Split)) +
+  geom_errorbar(aes(ymin = cv_kappa - cv_kappa_sd, ymax = cv_kappa + cv_kappa_sd),
+                width = 0.15, alpha = 0.8) +
+  geom_point(aes(y = cv_kappa, shape = "CV mean"), size = 3) +
+  geom_point(aes(y = test_kappa, shape = "Test"), size = 3) +
+  ylim(0, 1) +
+  labs(
+    title = "Developmental stage (PC1–50): SMART vs STUPID (Kappa)",
+    x = "Split strategy",
+    y = "Kappa",
+    shape = ""
+  ) +
+  theme_minimal()
+
+p_kappa
+
+
+```
+
+
+
+
+```{r}
 
 
 ```
