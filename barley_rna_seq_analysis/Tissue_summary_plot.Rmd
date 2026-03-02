@@ -158,11 +158,124 @@ p_kappa
 
 ```{r}
 # save plots to figures folder
-# ggsave(C:/Users/yarram/Documents/Rna-seq-metadata-gap-filling/barley_rna_seq_analysis/figures/rf_performance_vs_pcs_tissue_smart_split_accuracy.png,
-#        plot = p_acc, width = 8, height = 6)
-# ggsave(C:/Users/yarram/Documents/Rna-seq-metadata-gap-filling/barley_rna_seq_analysis/figures/rf_performance_vs_pcs_tissue_smart_split_kappa.png,
-#        plot = p_kappa, width = 8, height = 6)
+ggsave(
+  file.path("C:", "Users", "yarram", "Documents",
+            "Rna-seq-metadata-gap-filling",
+            "barley_rna_seq_analysis",
+            "figures",
+            "rf_performance_vs_pcs_tissue_smart_split_accuracy.png"),
+  plot = p_acc, width = 8, height = 6
+)
 
 
+
+```
+
+
+
+
+```{r}
+# Create a summary data frame with the provided data
+summary_df <- data.frame(
+  PCs = c(10, 20, 50, 100),
+
+  test_acc   = c(0.8363, 0.8272, 0.8573, 0.8573),
+  test_kappa = c(0.7794, 0.7699, 0.8075, 0.8083),
+
+  cv_acc     = c(0.7629103, 0.7629103, 0.7605146, 0.7613606),
+  cv_acc_sd  = c(0.2001379, 0.2001379, 0.2114176, 0.2062091),
+
+  cv_kappa    = c(0.6728584, 0.6728584, 0.6765530, 0.6787282),
+  cv_kappa_sd = c(0.2489090, 0.2489090, 0.2534176, 0.2406590)
+)
+
+```
+
+
+
+
+
+```{r}
+library(ggplot2)
+
+# Make sure PCs are treated in the correct order
+summary_df$PCs <- factor(summary_df$PCs, levels = c(10, 20, 50, 100))
+
+# Accuracy vs PCs plot
+
+p_acc <- ggplot(summary_df, aes(x = PCs, group = 1)) +
+  # CV mean accuracy + error bars (± SD)
+  geom_errorbar(aes(ymin = cv_acc - cv_acc_sd, ymax = cv_acc + cv_acc_sd),
+                width = 0.15, alpha = 0.6) +
+  geom_line(aes(y = cv_acc, linetype = "CV mean"), linewidth = 0.7) +
+  geom_point(aes(y = cv_acc, shape = "CV mean"), size = 3) +
+
+  # Test accuracy
+  geom_line(aes(y = test_acc, linetype = "Test"), linewidth = 0.7) +
+  geom_point(aes(y = test_acc, shape = "Test"), size = 3) +
+
+  # same y-scale across plots
+  ylim(0, 1) +
+  labs(
+    title = "Random Forest performance vs number of PCs (Accuracy)",
+    x = "Number of PCs used",
+    y = "Accuracy",
+    shape = "",
+    linetype = ""
+  ) +
+  theme_minimal()
+
+p_acc
+
+```
+
+
+
+
+```{r}
+# Kappa vs PCs plot
+
+p_kappa <- ggplot(summary_df, aes(x = PCs, group = 1)) +
+  # CV mean kappa + error bars (± SD)
+  geom_errorbar(aes(ymin = cv_kappa - cv_kappa_sd, ymax = cv_kappa + cv_kappa_sd),
+                width = 0.15, alpha = 0.6) +
+  geom_line(aes(y = cv_kappa, linetype = "CV mean"), linewidth = 0.7) +
+  geom_point(aes(y = cv_kappa, shape = "CV mean"), size = 3) +
+
+  # Test kappa
+  geom_line(aes(y = test_kappa, linetype = "Test"), linewidth = 0.7) +
+  geom_point(aes(y = test_kappa, shape = "Test"), size = 3) +
+
+  # same y-scale across plots
+  ylim(0, 1) +
+  labs(
+    title = "Random Forest performance vs number of PCs (Kappa)",
+    x = "Number of PCs used",
+    y = "Kappa",
+    shape = "",
+    linetype = ""
+  ) +
+  theme_minimal()
+
+p_kappa
+
+
+```
+
+
+```{r}
+## save plots to figures folder
+ggsave(
+  file.path("C:", "Users", "yarram", "Documents",
+            "Rna-seq-metadata-gap-filling",
+            "barley_rna_seq_analysis",
+            "figures",
+            "rf_performance_vs_pcs_tissue_smart_split_accuracy.png"),
+  plot = p_acc, width = 8, height = 6
+)
+```
+
+
+```{r}
 ```
 
