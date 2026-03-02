@@ -398,7 +398,8 @@ pc_var
 
 
 ```{r}
-#preapare data random forest 10 Pcs,only for know treatment
+#prepare data random forest 10 Pcs,only for know treatment
+
 library(dplyr)
 meta2 <- meta_aligned %>%
   mutate(
@@ -446,8 +447,6 @@ length(unique(meta_known$sra_study))
 
 
 
-
-
 ```{r}
 # group into fewer classes (edit mapping if you want)
 meta_known <- meta_known %>%
@@ -483,18 +482,14 @@ table(meta_known$treatment_group)
 
 
 
-
-
 ```{r}
 # for random forest, we want to focus on the main classes with enough samples. Adjust as needed.
 keep_main <- meta_known$treatment_group %in% c("control","abiotic","biotic")
 meta_treat <- meta_known[keep_main, , drop = FALSE]
 y <- droplevels(factor(meta_treat$treatment_group))
-
 table(y)
 
 ```
-
 
 
 
@@ -505,8 +500,6 @@ X10 <- X10[keep_main, , drop = FALSE]
 
 
 ```
-
-
 
 
 
@@ -1038,26 +1031,15 @@ table(y)
 dim(X100)
 length(unique(meta_treat$sra_study))
 
-
 ```
-
-
-
-
-
-
 ```{r}
 # split into training and test sets, ensuring samples from the same SRA study are in the same set
 set.seed(123)
-
 studies <- unique(meta_treat$sra_study)
-
 test_studies  <- sample(studies, size = round(0.2 * length(studies)))
 train_studies <- setdiff(studies, test_studies)
-
 train_idx <- meta_treat$sra_study %in% train_studies
 test_idx  <- meta_treat$sra_study %in% test_studies
-
 X_train <- X100[train_idx, , drop = FALSE]
 y_train <- droplevels(y[train_idx])
 
@@ -1066,8 +1048,6 @@ y_test  <- factor(y[test_idx], levels = levels(y_train))
 
 dim(X_train); dim(X_test)
 table(y_train)
-
-
 ```
 
 
@@ -1277,10 +1257,13 @@ p_kappa
 
 
 
-
+#deeplearning (MLP)
 
 
 ```{r}
+# installing deep learning packages
+#install.packages("nnet")
+
 ```
 
 
@@ -1289,12 +1272,722 @@ p_kappa
 
 
 ```{r}
+library(dplyr)
+library(caret)
+library(nnet)
+
+
+```
+
+
+
+
+```{r}
+# sanity check
+stopifnot(nrow(X100) == nrow(meta_treat))
+stopifnot(length(y) == nrow(meta_treat))
+table(y)
+length(unique(meta_treat$sra_study))
+
+
+```
+
+
+
+```{r}
+# split into train and test
+set.seed(123)
+studies <- unique(meta_treat$sra_study)
+test_studies  <- sample(studies, size = round(0.2 * length(studies)))
+train_studies <- setdiff(studies, test_studies)
+
+train_idx <- meta_treat$sra_study %in% train_studies
+test_idx  <- meta_treat$sra_study %in% test_studies
+
+X_train <- X10[train_idx, , drop = FALSE]
+X_test  <- X10[test_idx,  , drop = FALSE]
+
+y_train <- droplevels(y[train_idx])
+y_test  <- factor(y[test_idx], levels = levels(y_train))
+
+dim(X_train); dim(X_test)
+table(y_train); table(y_test)
+
+```
+
+
+
+```{r}
+# Perform MLP
+
+library(nnet)
+
+set.seed(123)
+mlp10 <- nnet(
+  x = as.matrix(X_train),
+  y = class.ind(y_train),
+  size = 10,
+  decay = 1e-3,
+  maxit = 300,
+  softmax = TRUE,
+  trace = FALSE,
+  MaxNWts = 100000
+)
+
+# --- 3) Predict + Confusion Matrix
+prob_test <- predict(mlp10, as.matrix(X_test), type = "raw")
+pred_test <- colnames(prob_test)[max.col(prob_test)]
+pred_test <- factor(pred_test, levels = levels(y_train))   
+
+cm_test <- confusionMatrix(pred_test, y_test)
+cm_test
+
+```
+
+
+
+```{r}
+# probabilities
+prob_test <- predict(mlp10, as.matrix(X_test), type = "raw")
+head(prob_test)
+
+```
+
+
+
+```{r}
+# cross-validation MLP
+library(caret)
+library(nnet)
+
+set.seed(123)
+
+studies <- unique(meta_treat$sra_study)
+folds <- createFolds(studies, k = 10, list = TRUE)
+
+acc_vec   <- numeric(length(folds))
+kappa_vec <- numeric(length(folds))
+
+for (k in seq_along(folds)) {
+
+  test_studies <- studies[folds[[k]]]
+  test_idx  <- meta_treat$sra_study %in% test_studies
+  train_idx <- !test_idx
+
+  X_train <- X10[train_idx, , drop = FALSE]
+  X_test  <- X10[test_idx,  , drop = FALSE]
+
+  y_train <- droplevels(y[train_idx])
+  y_test  <- factor(y[test_idx], levels = levels(y_train))  # align to train
+
+  # remove test rows that became NA after alignment (class absent in training fold)
+  keep <- !is.na(y_test)
+  X_test <- X_test[keep, , drop = FALSE]
+  y_test <- y_test[keep]   # IMPORTANT: no droplevels()
+
+  set.seed(123 + k)
+  mlp_cv <- nnet(
+    x = as.matrix(X_train),
+    y = class.ind(y_train),
+    size = 10,
+    decay = 1e-3,
+    maxit = 300,
+    softmax = TRUE,
+    trace = FALSE,
+    MaxNWts = 100000
+  )
+
+  prob <- predict(mlp_cv, as.matrix(X_test), type = "raw")
+  pred <- colnames(prob)[max.col(prob)]
+  pred <- factor(pred, levels = levels(y_train))
+
+  cm <- confusionMatrix(pred, y_test)
+  acc_vec[k]   <- as.numeric(cm$overall["Accuracy"])
+  kappa_vec[k] <- as.numeric(cm$overall["Kappa"])
+}
+
+mean(acc_vec); sd(acc_vec)
+mean(kappa_vec); sd(kappa_vec)
+
+```
+
+
+
+
+# MLP with 20 PCs
+
+```{r}
+# sanity check
+stopifnot(nrow(X100) == nrow(meta_treat))
+stopifnot(length(y) == nrow(meta_treat))
+table(y)
+length(unique(meta_treat$sra_study))
+
+
+```
+
+
+
+
+```{r}
+# split into train and test
+set.seed(123)
+studies <- unique(meta_treat$sra_study)
+test_studies  <- sample(studies, size = round(0.2 * length(studies)))
+train_studies <- setdiff(studies, test_studies)
+
+train_idx <- meta_treat$sra_study %in% train_studies
+test_idx  <- meta_treat$sra_study %in% test_studies
+
+X_train <- X20[train_idx, , drop = FALSE]
+X_test  <- X20[test_idx,  , drop = FALSE]
+
+y_train <- droplevels(y[train_idx])
+y_test  <- factor(y[test_idx], levels = levels(y_train))
+
+dim(X_train); dim(X_test)
+table(y_train); table(y_test)
+
+
+```
+
+
+
+```{r}
+# Perform MLP
+
+library(nnet)
+
+set.seed(123)
+mlp20 <- nnet(
+  x = as.matrix(X_train),
+  y = class.ind(y_train),
+  size = 10,
+  decay = 1e-3,
+  maxit = 300,
+  softmax = TRUE,
+  trace = FALSE,
+  MaxNWts = 100000
+)
+
+# --- 3) Predict + Confusion Matrix
+prob_test <- predict(mlp20, as.matrix(X_test), type = "raw")
+pred_test <- colnames(prob_test)[max.col(prob_test)]
+pred_test <- factor(pred_test, levels = levels(y_train))   
+
+cm_test <- confusionMatrix(pred_test, y_test)
+cm_test
+
+```
+
+
+
+```{r}
+# probabilities
+prob_test <- predict(mlp20, as.matrix(X_test), type = "raw")
+head(prob_test)
+
+```
+
+
+
+```{r}
+# cross-validation MLP
+library(caret)
+library(nnet)
+
+set.seed(123)
+
+studies <- unique(meta_treat$sra_study)
+folds <- createFolds(studies, k = 10, list = TRUE)
+
+acc_vec   <- numeric(length(folds))
+kappa_vec <- numeric(length(folds))
+
+for (k in seq_along(folds)) {
+
+  test_studies <- studies[folds[[k]]]
+  test_idx  <- meta_treat$sra_study %in% test_studies
+  train_idx <- !test_idx
+
+  X_train <- X20[train_idx, , drop = FALSE]
+  X_test  <- X20[test_idx,  , drop = FALSE]
+
+  y_train <- droplevels(y[train_idx])
+  y_test  <- factor(y[test_idx], levels = levels(y_train))  # align to train
+
+  # remove test rows that became NA after alignment (class absent in training fold)
+  keep <- !is.na(y_test)
+  X_test <- X_test[keep, , drop = FALSE]
+  y_test <- y_test[keep]   # IMPORTANT: no droplevels()
+
+  set.seed(123 + k)
+  mlp_cv <- nnet(
+    x = as.matrix(X_train),
+    y = class.ind(y_train),
+    size = 10,
+    decay = 1e-3,
+    maxit = 300,
+    softmax = TRUE,
+    trace = FALSE,
+    MaxNWts = 100000
+  )
+
+  prob <- predict(mlp_cv, as.matrix(X_test), type = "raw")
+  pred <- colnames(prob)[max.col(prob)]
+  pred <- factor(pred, levels = levels(y_train))
+
+  cm <- confusionMatrix(pred, y_test)
+  acc_vec[k]   <- as.numeric(cm$overall["Accuracy"])
+  kappa_vec[k] <- as.numeric(cm$overall["Kappa"])
+}
+
+mean(acc_vec); sd(acc_vec)
+mean(kappa_vec); sd(kappa_vec)
+
+```
+
+
+
+# MLP with 50 PCs 
+
+```{r}
+# sanity check
+stopifnot(nrow(X100) == nrow(meta_treat))
+stopifnot(length(y) == nrow(meta_treat))
+table(y)
+length(unique(meta_treat$sra_study))
+
+
+```
+
+
+
+
+```{r}
+# split into train and test
+set.seed(123)
+studies <- unique(meta_treat$sra_study)
+test_studies  <- sample(studies, size = round(0.2 * length(studies)))
+train_studies <- setdiff(studies, test_studies)
+
+train_idx <- meta_treat$sra_study %in% train_studies
+test_idx  <- meta_treat$sra_study %in% test_studies
+
+X_train <- X50[train_idx, , drop = FALSE]
+X_test  <- X50[test_idx,  , drop = FALSE]
+
+y_train <- droplevels(y[train_idx])
+y_test  <- factor(y[test_idx], levels = levels(y_train))
+
+dim(X_train); dim(X_test)
+table(y_train); table(y_test)
+
 ```
 
 
 
 
 
+```{r}
+# Perform MLP
+
+library(nnet)
+
+set.seed(123)
+mlp50 <- nnet(
+  x = as.matrix(X_train),
+  y = class.ind(y_train),
+  size = 10,
+  decay = 1e-3,
+  maxit = 300,
+  softmax = TRUE,
+  trace = FALSE,
+  MaxNWts = 100000
+)
+
+# --- 3) Predict + Confusion Matrix
+prob_test <- predict(mlp50, as.matrix(X_test), type = "raw")
+pred_test <- colnames(prob_test)[max.col(prob_test)]
+pred_test <- factor(pred_test, levels = levels(y_train))   
+
+cm_test <- confusionMatrix(pred_test, y_test)
+cm_test
+
+```
+
+
+
+
+```{r}
+# probabilities
+prob_test <- predict(mlp50, as.matrix(X_test), type = "raw")
+head(prob_test)
+
+```
+
+
+
+```{r}
+# cross-validation MLP
+library(caret)
+library(nnet)
+
+set.seed(123)
+
+studies <- unique(meta_treat$sra_study)
+folds <- createFolds(studies, k = 10, list = TRUE)
+
+acc_vec   <- numeric(length(folds))
+kappa_vec <- numeric(length(folds))
+
+for (k in seq_along(folds)) {
+
+  test_studies <- studies[folds[[k]]]
+  test_idx  <- meta_treat$sra_study %in% test_studies
+  train_idx <- !test_idx
+
+  X_train <- X50[train_idx, , drop = FALSE]
+  X_test  <- X50[test_idx,  , drop = FALSE]
+
+  y_train <- droplevels(y[train_idx])
+  y_test  <- factor(y[test_idx], levels = levels(y_train))  # align to train
+
+  # remove test rows that became NA after alignment (class absent in training fold)
+  keep <- !is.na(y_test)
+  X_test <- X_test[keep, , drop = FALSE]
+  y_test <- y_test[keep]   # IMPORTANT: no droplevels()
+
+  set.seed(123 + k)
+  mlp_cv <- nnet(
+    x = as.matrix(X_train),
+    y = class.ind(y_train),
+    size = 10,
+    decay = 1e-3,
+    maxit = 300,
+    softmax = TRUE,
+    trace = FALSE,
+    MaxNWts = 100000
+  )
+
+  prob <- predict(mlp_cv, as.matrix(X_test), type = "raw")
+  pred <- colnames(prob)[max.col(prob)]
+  pred <- factor(pred, levels = levels(y_train))
+
+  cm <- confusionMatrix(pred, y_test)
+  acc_vec[k]   <- as.numeric(cm$overall["Accuracy"])
+  kappa_vec[k] <- as.numeric(cm$overall["Kappa"])
+}
+
+mean(acc_vec); sd(acc_vec)
+mean(kappa_vec); sd(kappa_vec)
+
+
+```
+
+
+
+# MLP with 100 Pcs
+
+```{r}
+# sanity check
+stopifnot(nrow(X100) == nrow(meta_treat))
+stopifnot(length(y) == nrow(meta_treat))
+table(y)
+length(unique(meta_treat$sra_study))
+
+
+```
+
+
+
+
+```{r}
+# split into train and test
+set.seed(123)
+studies <- unique(meta_treat$sra_study)
+test_studies  <- sample(studies, size = round(0.2 * length(studies)))
+train_studies <- setdiff(studies, test_studies)
+
+train_idx <- meta_treat$sra_study %in% train_studies
+test_idx  <- meta_treat$sra_study %in% test_studies
+
+X_train <- X100[train_idx, , drop = FALSE]
+X_test  <- X100[test_idx,  , drop = FALSE]
+
+y_train <- droplevels(y[train_idx])
+y_test  <- factor(y[test_idx], levels = levels(y_train))
+
+dim(X_train); dim(X_test)
+table(y_train); table(y_test)
+
+```
+
+
+
+
+```{r}
+# Perform MLP
+
+library(nnet)
+
+set.seed(123)
+mlp100 <- nnet(
+  x = as.matrix(X_train),
+  y = class.ind(y_train),
+  size = 10,
+  decay = 1e-3,
+  maxit = 300,
+  softmax = TRUE,
+  trace = FALSE,
+  MaxNWts = 100000
+)
+
+# --- 3) Predict + Confusion Matrix
+prob_test <- predict(mlp100, as.matrix(X_test), type = "raw")
+pred_test <- colnames(prob_test)[max.col(prob_test)]
+pred_test <- factor(pred_test, levels = levels(y_train))   
+
+cm_test <- confusionMatrix(pred_test, y_test)
+cm_test
+
+
+```
+
+
+
+
+```{r}
+# probabilities
+prob_test <- predict(mlp100, as.matrix(X_test), type = "raw")
+head(prob_test)
+
+```
+
+
+```{r}
+# cross-validation MLP
+library(caret)
+library(nnet)
+
+set.seed(123)
+
+studies <- unique(meta_treat$sra_study)
+folds <- createFolds(studies, k = 10, list = TRUE)
+
+acc_vec   <- numeric(length(folds))
+kappa_vec <- numeric(length(folds))
+
+for (k in seq_along(folds)) {
+
+  test_studies <- studies[folds[[k]]]
+  test_idx  <- meta_treat$sra_study %in% test_studies
+  train_idx <- !test_idx
+
+  X_train <- X100[train_idx, , drop = FALSE]
+  X_test  <- X100[test_idx,  , drop = FALSE]
+
+  y_train <- droplevels(y[train_idx])
+  y_test  <- factor(y[test_idx], levels = levels(y_train))  # align to train
+
+  # remove test rows that became NA after alignment (class absent in training fold)
+  keep <- !is.na(y_test)
+  X_test <- X_test[keep, , drop = FALSE]
+  y_test <- y_test[keep]   # IMPORTANT: no droplevels()
+
+  set.seed(123 + k)
+  mlp_cv <- nnet(
+    x = as.matrix(X_train),
+    y = class.ind(y_train),
+    size = 10,
+    decay = 1e-3,
+    maxit = 300,
+    softmax = TRUE,
+    trace = FALSE,
+    MaxNWts = 100000
+  )
+
+  prob <- predict(mlp_cv, as.matrix(X_test), type = "raw")
+  pred <- colnames(prob)[max.col(prob)]
+  pred <- factor(pred, levels = levels(y_train))
+
+  cm <- confusionMatrix(pred, y_test)
+  acc_vec[k]   <- as.numeric(cm$overall["Accuracy"])
+  kappa_vec[k] <- as.numeric(cm$overall["Kappa"])
+}
+
+mean(acc_vec); sd(acc_vec)
+mean(kappa_vec); sd(kappa_vec)
+
+
+```
+
+
+
+# stupid way in MLP for 50 PCs
+
+```{r}
+
+library(nnet)
+library(caret)
+
+set.seed(123)
+
+X50 <- as.data.frame(X50)
+y   <- droplevels(y)
+
+#  STUPID split MLP (sample-based 80/20) + Train/Test evaluation
+set.seed(123)
+train_idx <- createDataPartition(y, p = 0.8, list = FALSE)
+
+X_train <- X50[train_idx, , drop = FALSE]
+X_test  <- X50[-train_idx, , drop = FALSE]
+
+y_train <- droplevels(y[train_idx])
+y_test  <- factor(y[-train_idx], levels = levels(y_train))
+
+set.seed(123)
+mlp50_stupid <- nnet(
+  x = as.matrix(X_train),
+  y = class.ind(y_train),
+  size = 10,
+  decay = 1e-3,
+  maxit = 300,
+  softmax = TRUE,
+  trace = FALSE,
+  MaxNWts = 100000
+)
+
+prob_test <- predict(mlp50_stupid, as.matrix(X_test), type = "raw")
+pred_test <- colnames(prob_test)[max.col(prob_test)]
+pred_test <- factor(pred_test, levels = levels(y_train))
+
+cm_test <- confusionMatrix(pred_test, y_test)
+cm_test
+
+```
+
+
+```{r}
+# STUPID 10-fold CV MLP (sample-based)
+
+set.seed(123)
+folds <- createFolds(y, k = 10, list = TRUE)
+
+acc_vec   <- numeric(length(folds))
+kappa_vec <- numeric(length(folds))
+
+for (k in seq_along(folds)) {
+
+  test_idx  <- folds[[k]]
+  train_idx <- setdiff(seq_len(nrow(X50)), test_idx)
+
+  X_train <- X50[train_idx, , drop = FALSE]
+  X_test  <- X50[test_idx,  , drop = FALSE]
+
+  y_train <- droplevels(y[train_idx])
+  y_test  <- factor(y[test_idx], levels = levels(y_train))
+
+  # (rare) if any NA after aligning levels, drop them
+  keep <- !is.na(y_test)
+  X_test <- X_test[keep, , drop = FALSE]
+  y_test <- y_test[keep]
+
+  set.seed(123 + k)
+  mlp_cv <- nnet(
+    x = as.matrix(X_train),
+    y = class.ind(y_train),
+    size = 10,
+    decay = 1e-3,
+    maxit = 300,
+    softmax = TRUE,
+    trace = FALSE,
+    MaxNWts = 100000
+  )
+
+  prob <- predict(mlp_cv, as.matrix(X_test), type = "raw")
+  pred <- colnames(prob)[max.col(prob)]
+  pred <- factor(pred, levels = levels(y_train))
+
+  cm <- confusionMatrix(pred, y_test)
+  acc_vec[k]   <- as.numeric(cm$overall["Accuracy"])
+  kappa_vec[k] <- as.numeric(cm$overall["Kappa"])
+}
+
+mean(acc_vec); sd(acc_vec)
+mean(kappa_vec); sd(kappa_vec)
+
+
+```
+
+
+```{r}
+library(ggplot2)
+
+mlp_compare_df <- data.frame(
+  Split = c("SMART (study-aware)", "STUPID (sample-based)"),
+  Test_Accuracy = c(0.2576, 0.8990),
+  CV_Mean_Accuracy = c(0.5115, 0.8808)
+)
+
+mlp_compare_df
+
+```
+
+
+```{r}
+ggplot(mlp_compare_df, aes(x = Split)) +
+  geom_point(aes(y = Test_Accuracy, shape = "Test accuracy"), size = 4) +
+  geom_point(aes(y = CV_Mean_Accuracy, shape = "CV mean accuracy"), size = 4) +
+  geom_line(aes(y = Test_Accuracy, group = 1, linetype = "Test accuracy")) +
+  geom_line(aes(y = CV_Mean_Accuracy, group = 1, linetype = "CV mean accuracy")) +
+  labs(
+    title = "MLP (50 PCs): SMART vs STUPID split",
+    y = "Accuracy",
+    x = "Split strategy",
+    shape = "",
+    linetype = ""
+  ) +
+  theme_minimal()
+
+```
+
+
+```{r}
+library(ggplot2)
+
+mlp_comp_df <- data.frame(
+  split = factor(c("SMART (study-aware)", "STUPID (sample-based)"),
+                 levels = c("SMART (study-aware)", "STUPID (sample-based)")),
+  cv_mean = c(0.511451, 0.8807659),
+  cv_sd   = c(0.1993211, 0.02216319),
+  test    = c(0.2576,    0.8990)
+)
+
+ggplot(mlp_comp_df, aes(x = split)) +
+  geom_point(aes(y = cv_mean, shape = "CV mean"), size = 3) +
+  geom_errorbar(aes(ymin = cv_mean - cv_sd, ymax = cv_mean + cv_sd),
+                width = 0.15) +
+  geom_point(aes(y = test, shape = "Test"), size = 3) +
+  scale_shape_manual(values = c("CV mean" = 16, "Test" = 17)) +
+  coord_cartesian(ylim = c(0, 1)) +
+  labs(
+    title = "MLP (50 PCs): SMART vs STUPID (Accuracy)",
+    x = "Split strategy",
+    y = "Accuracy",
+    shape = ""
+  ) +
+  theme_minimal()
+
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
 
 
 ```{r}
@@ -1302,33 +1995,465 @@ p_kappa
 
 
 
+```{r}
+#comparing RF and MLP 50 PCs
+comparison_50PC <- data.frame(
+  Model = c("Random Forest (50 PCs)", "MLP (50 PCs)"),
+  CV_Accuracy = c(0.428, 0.511),
+  CV_Kappa = c(0.188, 0.173)
+)
+
+comparison_50PC
+
+```
 
 
 
 
 ```{r}
+# comparing RF and MLP over PCs
+comparison_all <- data.frame(
+  PCs = rep(c(10,20,50,100), 2),
+  Model = rep(c("Random Forest", "MLP"), each = 4),
+  CV_Accuracy = c( 0.456, 0.461, 0.428, 0.444,   # RF
+    0.313, 0.409, 0.511, 0.417    # MLP
+  ),
+  CV_Kappa = c(
+    0.105, 0.104, 0.075, 0.072,   # RF
+    -0.0098, -0.0102, 0.1727, 0.1201  # MLP
+  )
+)
+
+comparison_all
+
+```
+
+
+
+```{r}
+library(ggplot2)
+
+ggplot(comparison_all, aes(x = PCs, y = CV_Accuracy, color = Model)) +
+  geom_point(size = 3) +
+  geom_line(size = 1) +
+  theme_minimal() +
+  labs(
+    title = "RF vs MLP Performance across PCs (Treatment)",
+    y = "Cross-Validated Accuracy"
+  )
+
+```
+
+
+# creating error bars
+
+```{r}
+#creating data frame with values
+results_df <- data.frame(
+  PCs = c(10, 20, 50, 100),
+
+  RF_acc_mean = c(0.4568, 0.4615, 0.4284, 0.4438),
+  RF_acc_sd   = c(0.1361, 0.1488, 0.1446, 0.1646),
+  RF_kap_mean = c(0.1052, 0.1869, 0.2337, 0.1198),
+  RF_kap_sd   = c(0.1440, 0.2262, 0.0809, 0.1198),
+
+  MLP_acc_mean = c(0.3129, 0.4091, 0.5115, 0.4176),
+  MLP_acc_sd   = c(0.1440, 0.1750, 0.1993, 0.1997),
+  MLP_kap_mean = c(-0.0098, -0.0102, 0.1727, 0.1201),
+  MLP_kap_sd   = c(0.1567, 0.2543, 0.2202, 0.1621)
+)
+
 ```
 
 
 
 
 
+```{r}
+library(tidyr)
+library(dplyr)
+#converting to long format
+acc_df <- results_df %>%
+  select(PCs, RF_acc_mean, RF_acc_sd, MLP_acc_mean, MLP_acc_sd) %>%
+  pivot_longer(-PCs, names_to = c("Model","Metric","Stat"), names_sep = "_") %>%
+  pivot_wider(names_from = Stat, values_from = value)
+
+kap_df <- results_df %>%
+  select(PCs, RF_kap_mean, RF_kap_sd, MLP_kap_mean, MLP_kap_sd) %>%
+  pivot_longer(-PCs, names_to = c("Model","Metric","Stat"), names_sep = "_") %>%
+  pivot_wider(names_from = Stat, values_from = value)
+
+```
+
+
+
 
 ```{r}
+library(ggplot2)
+
+# Accuracy Plot (RF and MLP over PCs)
+ggplot(acc_df, aes(x = PCs, y = mean, group = Model, shape = Model, linetype = Model)) +
+  geom_line() +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = mean - sd, ymax = mean + sd), width = 3) +
+  ylim(0, 1) +
+  labs(title = "RF vs MLP (Treatment): CV Accuracy over PCs",
+       x = "Number of PCs",
+       y = "CV Accuracy",
+       shape = "Model",
+       linetype = "Model") +
+  theme_minimal()
+
+```
+
+
+```{r}
+# Kappa plot ( RF and MLP over PCs)
+
+ggplot(kap_df, aes(x = PCs, y = mean, group = Model, shape = Model, linetype = Model)) +
+  geom_line() +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = mean - sd, ymax = mean + sd), width = 3) +
+  labs(title = "RF vs MLP (Treatment): CV Kappa over PCs",
+       x = "Number of PCs",
+       y = "CV Kappa",
+       shape = "Model",
+       linetype = "Model") +
+  theme_minimal()
+
+
+```
+
+
+**FINAL MODEL TRAINING and DEPLOYMENT**
+
+# FINAL MODEL TRAINING and DEPLYMENT with 100 PCs on unknown treatments to predict their classes (control, abiotic, biotic)
+
+
+
+```{r}
+# till now i have performed rf and cross validation for known treatments with 10,20,50 and 100 PCs. now i want to perform random forest and cross validation for on unknown treatments by using 100 PCs 
+# now am doing final training on all known treatment samples with 100 PCs and then will predict on unknown treatment samples.
+
+## FINAL STEP (Treatment):
+## Train RF on ALL known samples (100 PCs) and predict on unknown samples
+
+library(randomForest)
+library(dplyr)
+
+# Make sure meta2 has sra_study + treatment (character)
+meta_all <- meta2 %>%
+  mutate(
+    sra_study = sra_study,                 # keep as is (or rename if needed)
+    treatment = as.character(treatment)
+  )
+
+```
+
+
+
+
+```{r}
+# 1) Create treatment_group (THIS is the missing part that caused your error)
+meta_all <- meta_all %>%
+  mutate(
+    treatment_group = case_when(
+      treatment == "control" ~ "control",
+      treatment %in% c("abiotic stress","drought","salt","heat","cold","oxidative stress") ~ "abiotic",
+      treatment %in% c("pathogen","symbiotic") ~ "biotic",
+      TRUE ~ NA_character_   # everything else = unknown for this final model
+    )
+  )
+
+```
+
+
+
+
+```{r}
+# 2) Build PC matrix for ALL samples (must match meta row order used in PCA)
+X100_all <- as.data.frame(pca_res$x[, 1:100, drop = FALSE])
+stopifnot(nrow(X100_all) == nrow(meta_all))
+
+```
+
+
+
+
+```{r}
+# 3) Define known vs unknown (unknown includes NA in treatment_group)
+known_idx   <- !is.na(meta_all$treatment_group)
+unknown_idx <-  is.na(meta_all$treatment_group)
+
+```
+
+
+
+
+```{r}
+# sanity checks (important)
+table(meta_all$treatment_group, useNA = "ifany")
+sum(known_idx); sum(unknown_idx)
+
+```
+
+
+# here 2088 are known samples with treatment_group labels (control, abiotic, biotic) and 8008 are unknown samples with NA in treatment_group that we want to predict 
+# total samples = 10096 (2088 known + 8008 unknown) which are total my metadata samples
+
+
+
+```{r}
+# 4) Train FINAL RF on ALL known samples (3-class)
+X_train_all <- X100_all[known_idx, , drop = FALSE]
+y_train_all <- droplevels(factor(meta_all$treatment_group[known_idx]))
+
+table(y_train_all)   # should show abiotic/biotic/control (>=2 classes!)
+
+rf_final <- randomForest(
+  x = X_train_all,
+  y = y_train_all,
+  ntree = 500,
+  classwt = 1 / table(y_train_all)
+)
+
+```
+
+
+
+```{r}
+# 5) Predict unknown samples (labels + probabilities)
+X_unknown <- X100_all[unknown_idx, , drop = FALSE]
+
+pred_unknown <- predict(rf_final, X_unknown, type = "response")
+prob_unknown <- predict(rf_final, X_unknown, type = "prob")
+
+```
+
+
+
+
+# lets explore the predictions for the unknown samples to see what the model is predicting .
+
+```{r}
+# how many unknown you predicted?
+length(pred_unknown)
+nrow(prob_unknown)
+
+```
+
+
+
+```{r}
+# predicted class distribution (unknown set)
+# NOTE: this is just the distribution of predicted classes for the unknown samples, not a performance metric since we don't have true labels for these
+# this shows how much percentage of unknown samples were predicted as each class (control, abiotic, biotic)
+
+prop.table(table(pred_unknown))
+
+```
+
+
+
+```{r}
+# quick look at probabilities
+head(prob_unknown)
+
+```
+
+
+```{r}
+# confidence summary (max prob per sample)
+# this gives an idea of how confident the model is in its predictions for the unknown samples (higher max prob = more confident)
+# in simple terms, this shows the distribution of the highest predicted probability across all unknown samples, which can indicate how strongly the model is leaning towards its predicted class for those samples 
+
+conf <- apply(prob_unknown, 1, max)
+summary(conf)
+quantile(conf, c(0.1, 0.25, 0.5, 0.75, 0.9))
+
+```
+
+
+
+```{r}
+# show the 20 most confident predictions (with sample IDs)
+# this lists the top 20 unknown samples that the model is most confident about (highest max probability), along with their predicted class and confidence score confidence score 1 is very high confidence, while values closer to 0.5 indicate more uncertainty in the prediction (since it's a 3-class problem, the baseline random guess would be around 0.33) 
+# for example, if a sample has a confidence score of 0.9 for being classified as "abiotic", it means the model is very confident that this sample belongs to the "abiotic" class, while a score of 0.4 would indicate much less confidence in that prediction.
+
+top <- order(conf, decreasing = TRUE)[1:20]
+data.frame(
+  sample = rownames(prob_unknown)[top],
+  pred   = pred_unknown[top],
+  conf   = conf[top]
+)
+
+```
+
+
+
+
+```{r}
+# show the 20 least confident predictions
+bot <- order(conf, decreasing = FALSE)[1:20]
+data.frame(
+  sample = rownames(prob_unknown)[bot],
+  pred   = pred_unknown[bot],
+  conf   = conf[bot]
+)
+
+```
+
+
+
+```{r}
+# check if model is just predicting mostly 'control'
+table(pred_unknown)
+
+```
+
+
+
+```{r}
+# here we can also check the agreement of predictions across multiple runs to see if the model is stable in its predictions for the unknown samples (since we don't have true labels, this is a way to assess consistency)  
+# here we train the same RF model multiple times with different random seeds and see if it gives the same predictions for the unknown samples each time. if the agreement is high (close to 1), it means the model is consistently predicting the same class for those unknown samples, which can increase our confidence in those predictions. if the agreement is low, it suggests that the model's predictions for the unknown samples are more variable and less reliable.
+
+#different random seeds means different random subsets of trees in the RF, which can lead to slightly different predictions. if the model is very confident and stable in its predictions for the unknown samples, we would expect high agreement across runs. if the model is uncertain about those samples, we might see more variability in the predicted classes across runs, leading to lower agreement.
+ 
+# one line about this step: "To further assess the stability of our predictions for the unknown samples, we can train the random forest model multiple times with different random seeds and check how consistent the predicted classes are across these runs. High agreement would suggest that the model is confidently classifying those unknown samples, while low agreement might indicate uncertainty in those predictions."
+
+pred_list <- list()
+
+for (s in 1:5) {
+  set.seed(100 + s)
+  
+  rf_tmp <- randomForest(
+    x = X_train_all,
+    y = y_train_all,
+    ntree = 500,
+    classwt = 1 / table(y_train_all)
+  )
+  
+  pred_list[[s]] <- predict(rf_tmp, X_unknown)
+}
+
+# agreement rate
+agree_matrix <- do.call(cbind, pred_list)
+mean(apply(agree_matrix, 1, function(x) length(unique(x)) == 1))
+
+```
+#98.25% of unknown samples received the SAME predicted class across 5 different RF runs
+
+
+
+
+
+#final modeland deployment for unknown samples with 50 PCs
+#(since 100 PCs had lower CV performance than 50 PCs, we can try the same final prediction approach with 50 PCs to see if it gives more confident predictions for the unknown samples)
+
+```{r}
+# 2) Build PC matrix for ALL samples (must match meta row order used in PCA)
+X50_all <- as.data.frame(pca_res$x[, 1:50, drop = FALSE])
+stopifnot(nrow(X50_all) == nrow(meta_all))
+
+```
+
+
+
+
+```{r}
+# 3) Define known vs unknown (unknown includes NA in treatment_group)
+known_idx   <- !is.na(meta_all$treatment_group)
+unknown_idx <-  is.na(meta_all$treatment_group)
+
 ```
 
 
 
 
 
+```{r}
+# 4) Train FINAL RF on ALL known samples (3-class)
+X_train_all <- X50_all[known_idx, , drop = FALSE]
+y_train_all <- droplevels(factor(meta_all$treatment_group[known_idx]))
+
+table(y_train_all)   # should show abiotic/biotic/control (>=2 classes!)
+
+rf_final <- randomForest(
+  x = X_train_all,
+  y = y_train_all,
+  ntree = 500,
+  classwt = 1 / table(y_train_all)
+)
+```
 
 
 ```{r}
+# 5) Predict unknown samples (labels + probabilities)
+X_unknown <- X50_all[unknown_idx, , drop = FALSE]
+
+pred_unknown <- predict(rf_final, X_unknown, type = "response")
+prob_unknown <- predict(rf_final, X_unknown, type = "prob")
+
+
 ```
 
 
 
 
+```{r}
+# predicted class distribution (unknown set)
+# this is just the distribution of predicted classes for the unknown samples, not a performance metric since we don't have true labels for these 
+# this shows how much percentage of unknown samples were predicted as each class (control, abiotic, biotic)
+prop.table(table(pred_unknown))
+
+```
+
+
+
+```{r}
+#check if model is just predicting mostly 'control'
+table(pred_unknown)
+
+```
+
+
+```{r}
+#confidence summary (max prob per sample)
+conf <- apply(prob_unknown, 1, max)
+summary(conf)
+quantile(conf, c(0.1, 0.25, 0.5, 0.75, 0.9))  
+
+```
+
+
+
+```{r}
+# check the agreement of predictions across multiple runs to see if the model is stable in its predictions for the unknown samples (since we don't have true labels, this is a way to assess consistency)  
+pred_list <- list() 
+for (s in 1:5) {
+  set.seed(100 + s)
+  
+  rf_tmp <- randomForest(
+    x = X_train_all,
+    y = y_train_all,
+    ntree = 500,
+    classwt = 1 / table(y_train_all)
+  )
+  
+  pred_list[[s]] <- predict(rf_tmp, X_unknown)
+}
+# agreement rate
+agree_matrix <- do.call(cbind, pred_list)
+mean(apply(agree_matrix, 1, function(x) length(unique(x)) == 1))  
+
+
+```
+
+
+
+
+```{r}
+```
 
 
 ```{r}
