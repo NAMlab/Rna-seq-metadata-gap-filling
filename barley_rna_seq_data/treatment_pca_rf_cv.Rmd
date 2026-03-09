@@ -2350,6 +2350,7 @@ mean(apply(agree_matrix, 1, function(x) length(unique(x)) == 1))
 #final modeland deployment for unknown samples with 50 PCs
 #(since 100 PCs had lower CV performance than 50 PCs, we can try the same final prediction approach with 50 PCs to see if it gives more confident predictions for the unknown samples)
 
+
 ```{r}
 # 2) Build PC matrix for ALL samples (must match meta row order used in PCA)
 X50_all <- as.data.frame(pca_res$x[, 1:50, drop = FALSE])
@@ -2453,9 +2454,53 @@ mean(apply(agree_matrix, 1, function(x) length(unique(x)) == 1))
 
 
 ```{r}
+# create empty columns first before assigning predictions (to avoid issues with NA vs factor levels)
+meta_all$treatment_group_pred <- NA_character_
+meta_all$treatment_group_conf <- NA_real_
+
+# now assign predictions to unknown samples
+meta_all$treatment_group_pred[unknown_idx] <- as.character(pred_unknown)
+meta_all$treatment_group_conf[unknown_idx] <- conf
+
+# # save full updated metadata
+# write.csv(meta_all,
+#           "metadata_with_treatment_predictions.csv",
+#           row.names = FALSE)
+
 ```
+
+
+
 
 
 ```{r}
+# check the columns in the updated metadata
+colnames(meta_all)
+
 ```
 
+
+
+
+```{r}  
+# quick look at the updated metadata with predictions
+head(meta_all)
+
+```
+
+
+
+
+```{r}  
+# check the distribution of predicted classes in the metadata (should match what we saw in prop.table earlier)
+table(meta_all$treatment_group_pred, useNA = "ifany")
+summary(meta_all$treatment_group_conf)
+
+```
+
+
+```{r}  
+```
+
+
+```{r}  
