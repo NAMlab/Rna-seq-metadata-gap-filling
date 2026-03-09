@@ -2447,7 +2447,6 @@ for (s in 1:5) {
 agree_matrix <- do.call(cbind, pred_list)
 mean(apply(agree_matrix, 1, function(x) length(unique(x)) == 1))  
 
-
 ```
 
 
