@@ -217,7 +217,7 @@ p_acc <- ggplot(summary_df, aes(x = PCs, group = 1)) +
   # same y-scale across plots
   ylim(0, 1) +
   labs(
-    title = "Random Forest performance vs number of PCs (Accuracy)",
+    title = "Model performance over PCs for Tissue (Accuracy)",
     x = "Number of PCs used",
     y = "Accuracy",
     shape = "",
@@ -249,7 +249,7 @@ p_kappa <- ggplot(summary_df, aes(x = PCs, group = 1)) +
   # same y-scale across plots
   ylim(0, 1) +
   labs(
-    title = "Random Forest performance vs number of PCs (Kappa)",
+    title = "Model performance over PCs for Tissue (Kappa)",
     x = "Number of PCs used",
     y = "Kappa",
     shape = "",
