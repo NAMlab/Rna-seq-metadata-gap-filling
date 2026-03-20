@@ -77,7 +77,7 @@ library(dplyr)
 df4 <- list(df, df1, df2, df3) |>
   Reduce(function(x, y) full_join(x, y, by = "gene"), x = _)
 
-# (optional) if any duplicate sample names exist, make them unique
+# if any duplicate sample names exist, make them unique
 colnames(df4) <- make.unique(colnames(df4))
 
 ```
@@ -785,7 +785,7 @@ mean(kappa_vec); sd(kappa_vec)
 library(ggplot2)
 
 df <- data.frame(
-  Split = c("SMART", "STUPID"),
+  Split = c("SMART", "NAIVE"),
   Accuracy = c(0.857, 0.977),
   Kappa = c(0.81, 0.97)
 )
@@ -818,7 +818,7 @@ ggplot(df, aes(x = Split, y = Kappa, fill = Split)) +
 library(ggplot2)
         
 tissue_compare <- data.frame(
-  Split = c("SMART", "STUPID"),
+  Split = c("SMART", "NAIVE"),
 
   test_acc   = c(0.8573, 0.9767),
   test_kappa = c(0.8075, 0.9690),
@@ -830,7 +830,7 @@ tissue_compare <- data.frame(
   cv_kappa_sd = c(0.2534176, 0.005512673)
 )
 
-tissue_compare$Split <- factor(tissue_compare$Split, levels = c("SMART", "STUPID"))
+tissue_compare$Split <- factor(tissue_compare$Split, levels = c("SMART", "NAIVE"))
 
 
 ```
@@ -854,7 +854,7 @@ p_acc <- ggplot(tissue_compare, aes(x = Split)) +
 
   ylim(0, 1) +
   labs(
-    title = "Tissue (PC1–50): SMART vs STUPID (Accuracy)",
+    title = "Tissue (PC1–50): SMART vs NAIVE (Accuracy)",
     x = "Split strategy",
     y = "Accuracy",
     shape = ""
@@ -884,7 +884,7 @@ p_kappa <- ggplot(tissue_compare, aes(x = Split)) +
 
   ylim(0, 1) +
   labs(
-    title = "Tissue (PC1–50): SMART vs STUPID (Kappa)",
+    title = "Tissue (PC1–50): SMART vs NAIVE (Kappa)",
     x = "Split strategy",
     y = "Kappa",
     shape = ""
@@ -899,13 +899,268 @@ p_kappa
 
 
 
+
+**final model training and deployment to predict unknown samples with 50 PCs **
+
+
 ```{r}
+# here i loaded my metadata with included treatment predictions 
+metadata_all <- read.csv(
+  "metadata_with_treatment_and_devstage_predictions.csv",
+  stringsAsFactors = FALSE
+)
 
 
 ```
 
 
 ```{r}
+library(randomForest)
+library(dplyr)
+
+# ============================================================
+# FINAL MODEL TRAINING + DEPLOYMENT (Tissue)
+# Train RF on ALL known tissue samples (50 PCs)
+# Predict unknown tissue samples
+# ============================================================
+
+# 0) metadata containing treatment + developmental predictions
+meta_all <- metadata_all
+
+```
+
+
+
+
+```{r}
+# 1) tissue label column
+label_col <- "tissue" 
+
+```
+
+
+
+
+```{r}
+# ensure character
+meta_all[[label_col]] <- as.character(meta_all[[label_col]])
+
+```
+
+
+
+
+```{r}
+# 2) Build PC matrix for ALL samples
+X50_all <- as.data.frame(pca_res$x[, 1:50, drop = FALSE])
+stopifnot(nrow(X50_all) == nrow(meta_all))
+
+```
+
+
+
+
+```{r}
+# 3) Define known vs unknown tissue samples
+known_idx <- !is.na(meta_all[[label_col]]) &
+             meta_all[[label_col]] != "" &
+             meta_all[[label_col]] != "mixed"
+
+unknown_idx <- is.na(meta_all[[label_col]]) |
+               meta_all[[label_col]] == "" |
+               meta_all[[label_col]] == "mixed"
+
+
+```
+
+
+
+```{r}
+# sanity check
+table(known_idx)
+table(unknown_idx)
+
+```
+
+
+
+
+```{r}
+# sanity check
+table(meta_all[[label_col]][known_idx])
+
+```
+
+
+
+```{r}
+# 4) Train FINAL RF on all known tissue samples
+X_train_all <- X50_all[known_idx, , drop = FALSE]
+y_train_all <- droplevels(factor(meta_all[[label_col]][known_idx]))
+
+set.seed(123)
+
+rf_final_tissue <- randomForest(
+  x = X_train_all,
+  y = y_train_all,
+  ntree = 500,
+  classwt = 1 / table(y_train_all)
+)
+
+```
+
+
+
+
+```{r}
+# 5) Predict unknown tissue samples
+X_unknown <- X50_all[unknown_idx, , drop = FALSE]
+
+prob_unknown <- predict(rf_final_tissue, X_unknown, type = "prob")
+
+pred_unknown <- colnames(prob_unknown)[max.col(prob_unknown)]
+conf_unknown <- apply(prob_unknown, 1, max)
+
+```
+
+
+
+
+```{r}
+# 6) Sanity checks
+length(pred_unknown)
+prop.table(table(pred_unknown))
+
+```
+
+
+```{r}
+# confidence summary
+summary(conf_unknown)
+quantile(conf_unknown, c(0.1,0.25,0.5,0.75,0.9))
+
+```
+
+
+
+
+```{r}
+# 7) Check prediction agreement across multiple RF runs (stability check)
+# Here, we are running the random forest model multiple times with different random seeds to check the stability of the predictions for the unknown tissue samples.
+# By comparing the predictions across these runs, we can assess how consistent the model's predictions are, which is important for ensuring that the results are not due to random chance or specific to a particular random seed.
+
+pred_list <- list()
+
+for (s in 1:5) {
+
+  set.seed(100 + s)
+
+  rf_tmp <- randomForest(
+    x = X_train_all,
+    y = y_train_all,
+    ntree = 500,
+    classwt = 1 / table(y_train_all)
+  )
+
+  pred_list[[s]] <- predict(rf_tmp, X_unknown)
+}
+
+agree_matrix <- do.call(cbind, pred_list)
+
+mean(apply(agree_matrix, 1, function(x) length(unique(x)) == 1))
+
+
+```
+
+
+```{r}
+# # save final model and predictions
+# meta_all$tissue_pred <- NA_character_
+# meta_all$tissue_conf <- NA_real_
+# 
+# meta_all$tissue_pred[unknown_idx] <- pred_unknown
+# meta_all$tissue_conf[unknown_idx] <- conf_unknown
+# 
+# # create filled tissue column (final label for PCA)
+# meta_all$tissue_filled <- meta_all$tissue
+# meta_all$tissue_filled[unknown_idx] <- meta_all$tissue_pred[unknown_idx]
+# 
+# write.csv(
+#   meta_all,
+#   "metadata_with_all_predictions.csv",
+#   row.names = FALSE
+# )
+
+
+```
+
+
+
+
+
+```{r}
+head (metadata_all)
+```
+
+
+```{r}
+# check filled tissue distribution
+table(meta_all$tissue_filled, useNA="ifany")
+
+```
+
+
+
+```{r}
+# now i want to fill treatment and developmental stage columns with their respective predictions for samples that have missing values in those columns so that i can use those filled columns for PCA and see how well they separate samples by tissue
+
+meta_all <- read.csv("metadata_with_all_predictions.csv", stringsAsFactors = FALSE)
+```
+
+
+
+
+```{r}
+# fill treatment group
+
+meta_all$treatment_group_filled <- meta_all$treatment_group
+need_fill_treat <- is.na(meta_all$treatment_group_filled) | meta_all$treatment_group_filled == ""
+meta_all$treatment_group_filled[need_fill_treat] <- meta_all$treatment_group_pred[need_fill_treat]
+
+
+```
+
+
+
+
+
+```{r}
+# check distribution if any NA left
+
+table(meta_all$treatment_group_filled, useNA = "ifany")
+table(meta_all$developmental_stage_filled, useNA = "ifany")
+table(meta_all$tissue_filled, useNA = "ifany")
+
+
+```
+
+
+
+
+```{r}
+#save
+# write.csv(
+#   meta_all,
+#   "metadata_with_all_predictions_filled.csv",
+#   row.names = FALSE
+# )
+
+```
+
+
+
+```{r}
+head (meta_all)
 ```
 
 
