@@ -1,0 +1,128 @@
+
+
+```{r}
+
+getwd()
+
+```
+
+
+
+```{r}
+#set working directory
+setwd("C:/Users/yarram/Documents/Rna-seq-metadata-gap-filling/barley_rna_seq_analysis")
+
+```
+
+
+
+
+```{r}
+#load necessary libraries
+#loading libraries
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(umap)
+library(sva)
+library(limma)
+library(factoextra)
+library(pheatmap)
+
+
+
+```
+
+
+
+
+```{r}
+summary_treat <- data.frame(
+  PCs = c(10, 20, 50, 100),
+
+  test_acc = c(0.4803 ,0.3493,0.4367,0.4803),
+
+  test_kappa = c( 0.2337,0.0809,0.1869,0.2337),
+
+  cv_acc = c(0.4568,0.4615,0.4284,0.4438),
+
+  cv_kappa = c( 0.1052,0.1041,0.0744, 0.0714))
+
+summary_treat
+
+```
+
+
+
+
+
+```{r}
+#accuracy
+
+library(ggplot2)
+
+p_acc_treat <- ggplot(summary_treat, aes(x = PCs)) +
+  geom_point(aes(y = test_acc, shape = "Test accuracy"), size = 3) +
+  geom_line(aes(y = test_acc, linetype = "Test accuracy")) +
+
+  geom_point(aes(y = cv_acc, shape = "CV mean accuracy"), size = 3) +
+  geom_line(aes(y = cv_acc, linetype = "CV mean accuracy")) +
+
+  scale_x_continuous(breaks = summary_treat$PCs) +
+  labs(
+    title = "Random Forest performance vs number of PCs (Treatment)",
+    x = "Number of PCs used",
+    y = "Accuracy",
+    shape = "",
+    linetype = ""
+  ) +
+  theme_minimal()
+
+p_acc_treat
+
+
+```
+
+
+
+
+
+```{r}
+# kappa
+p_kappa_treat <- ggplot(summary_treat, aes(x = PCs)) +
+  geom_point(aes(y = test_kappa, shape = "Test kappa"), size = 3) +
+  geom_line(aes(y = test_kappa, linetype = "Test kappa")) +
+
+  geom_point(aes(y = cv_kappa, shape = "CV mean kappa"), size = 3) +
+  geom_line(aes(y = cv_kappa, linetype = "CV mean kappa")) +
+
+  scale_x_continuous(breaks = summary_treat$PCs) +
+  labs(
+    title = "Random Forest kappa vs number of PCs (Treatment)",
+    x = "Number of PCs used",
+    y = "Kappa",
+    shape = "",
+    linetype = ""
+  ) +
+  theme_minimal()
+
+p_kappa_treat
+
+
+```
+
+
+
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
