@@ -84,9 +84,6 @@ sum(is.na(df4))
 
 
 
-
-
-
 ```{r}
 # extract TPM columns + gene column
 tpm_df <- df4 %>%
@@ -254,13 +251,11 @@ colnames(meta_raw)
 
 
 
-
 ```{r}
 # i want to see how many sheets of data are in the excel file
 excel_sheets("hordeum_vulgare_10520.xlsx")
 
 ```
-
 
 
 
@@ -1042,7 +1037,6 @@ length(unique(meta_stage$sra_study[test_idx]))
 
 
 
-
 ```{r}
 # train RF without transition by 100 PCs
 rf_stage <- randomForest(
@@ -1116,7 +1110,7 @@ mean(kappa_vec); sd(kappa_vec)
 
 
 
-#stupid way by 50 PCs for developmental stage prediction (excluding transition) - random 80/20 split by sample, not by study 
+# NAIVE way by 50 PCs for developmental stage prediction (excluding transition) - random 80/20 split by sample, not by study 
 
 ```{r}
 # Stupid split: random 80/20 by sample (not by study)
@@ -1230,7 +1224,7 @@ mean(kappa_vec); sd(kappa_vec)
 library(ggplot2)
 
 dev_comp <- data.frame(
-  Split = c("SMART", "STUPID"),
+  Split = c("SMART", "NAIVE"),
 
   # Test-set (confusionMatrix overall)
   test_acc   = c(0.7967, 0.9920),
@@ -1243,7 +1237,7 @@ dev_comp <- data.frame(
   cv_kappa_sd= c(0.1926055, 0.006933309)
 )
 
-dev_comp$Split <- factor(dev_comp$Split, levels = c("SMART", "STUPID"))
+dev_comp$Split <- factor(dev_comp$Split, levels = c("SMART", "NAIVE"))
 
 
 ```
@@ -1263,7 +1257,7 @@ p_acc <- ggplot(dev_comp, aes(x = Split)) +
   geom_point(aes(y = test_acc, shape = "Test"), size = 3) +
   ylim(0, 1) +
   labs(
-    title = "Developmental stage (PC1–50): SMART vs STUPID (Accuracy)",
+    title = "Developmental stage (PC1–50): SMART vs NAIVE (Accuracy)",
     x = "Split strategy",
     y = "Accuracy",
     shape = ""
@@ -1289,7 +1283,7 @@ p_kappa <- ggplot(dev_comp, aes(x = Split)) +
   geom_point(aes(y = test_kappa, shape = "Test"), size = 3) +
   ylim(0, 1) +
   labs(
-    title = "Developmental stage (PC1–50): SMART vs STUPID (Kappa)",
+    title = "Developmental stage (PC1–50): SMART vs NAIVE (Kappa)",
     x = "Split strategy",
     y = "Kappa",
     shape = ""
@@ -1305,7 +1299,327 @@ p_kappa
 
 
 ```{r}
+# load csv file
+metadata_all <- read.csv("metadata_with_treatment_predictions.csv")
+
+```
 
 
+
+```{r}
+print(head(metadata_all))
+```
+
+
+
+
+
+**final model training and deployment to predict unknown samples with 50 PCs **
+
+
+```{r}
+# here i loaded my metadata with included treatment predictions 
+meta2 <- read.csv("metadata_with_treatment_predictions.csv", stringsAsFactors = FALSE)
+
+```
+
+
+
+```{r}
+#rename
+meta_all <- metadata_all 
+
+```
+
+
+
+```{r}
+# 1) Set the label column name for developmental stage
+label_col <- "developmental_stage"
+
+```
+
+
+
+
+```{r}
+# 2) Build PC matrix for ALL samples (must match meta row order used for PCA)
+X50_all <- as.data.frame(pca_res$x[, 1:50, drop = FALSE])
+stopifnot(nrow(X50_all) == nrow(meta_all))
+
+```
+
+
+
+
+```{r}
+# 3) Define known vs unknown (unknown = NA or empty string)
+known_idx   <- !is.na(meta_all[[label_col]]) & meta_all[[label_col]] != ""
+unknown_idx <-  is.na(meta_all[[label_col]]) | meta_all[[label_col]] == ""
+
+```
+
+
+
+
+```{r}
+#sanity checks
+cat("Known samples:", sum(known_idx), "\n")
+cat("Unknown samples:", sum(unknown_idx), "\n")
+cat("Total samples:", nrow(meta_all), "\n")
+
+```
+
+
+
+
+
+```{r}
+# 4) Train FINAL RF on ALL known samples
+X_train_all <- X50_all[known_idx, , drop = FALSE]
+y_train_all <- droplevels(factor(meta_all[[label_col]][known_idx]))
+
+table(y_train_all)  # must show >=2 classes (otherwise RF will error)
+
+set.seed(123)
+rf_final_dev <- randomForest(
+  x = X_train_all,
+  y = y_train_all,
+  ntree = 500,
+  classwt = 1 / table(y_train_all)
+)
+
+
+```
+
+
+
+```{r}
+# 5) Predict unknown samples (+ probabilities + confidence)
+X_unknown <- X50_all[unknown_idx, , drop = FALSE]
+
+prob_unknown <- predict(rf_final_dev, X_unknown, type = "prob")
+pred_unknown <- colnames(prob_unknown)[max.col(prob_unknown)]
+conf_unknown <- apply(prob_unknown, 1, max)
+
+
+```
+
+
+
+
+```{r}
+# 6) Quick sanity checks (distribution + confidence)
+length(pred_unknown)
+prop.table(table(pred_unknown))
+
+```
+
+
+
+```{r}
+#check if model is just predicting mostly one class for unknown samples (which could indicate low confidence or bias)
+table(pred_unknown)
+
+```
+
+
+
+```{r}
+## confidence summary (max prob per sample)
+# this gives an idea of how confident the model is in its predictions for the unknown samples (higher max prob = more confident)
+# in simple terms, this shows the distribution of the highest predicted probability across all unknown samples, which can indicate how strongly the model is leaning towards its predicted class for those samples 
+
+# # check confidence distribution quantiles, in simple terms, this shows the range of confidence levels for the model's predictions on the unknown samples, giving insight into how certain the model is across different samples (e.g., 10% of samples have max prob below 0.6, 50% below 0.8, etc.) 
+
+summary(conf_unknown)
+
+quantile(conf_unknown, c(0.1, 0.25, 0.5, 0.75, 0.9))
+
+```
+
+
+
+```{r}
+# # here we can also check the agreement of predictions across multiple runs to see if the model is stable in its predictions for the unknown samples (since we don't have true labels, this is a way to assess consistency)
+
+pred_list <- vector("list", 5)
+
+for (s in 1:5) {
+  set.seed(100 + s)
+
+  rf_tmp <- randomForest(
+    x = X_train_all,
+    y = y_train_all,
+    ntree = 500,
+    classwt = 1 / table(y_train_all)
+  )
+
+  pred_list[[s]] <- as.character(predict(rf_tmp, X_unknown))
+}
+
+agree_matrix <- do.call(cbind, pred_list)
+
+# agreement rate
+agree_rate <- mean(apply(agree_matrix, 1, function(x) length(unique(x)) == 1))
+agree_rate
+
+
+```
+
+
+```{r}
+# # 7) Write predictions back into metadata (new columns)
+# meta_all$dev_stage_pred <- NA_character_
+# meta_all$dev_stage_conf <- NA_real_
+# 
+# meta_all$dev_stage_pred[unknown_idx] <- pred_unknown
+# meta_all$dev_stage_conf[unknown_idx] <- conf_unknown
+# 
+# # also keep "final label" column filled
+# meta_all$developmental_stage_filled <- meta_all[[label_col]]
+# meta_all$developmental_stage_filled[unknown_idx] <- pred_unknown
+# 
+# # 8) Save updated metadata (now includes treatment + dev-stage)
+# write.csv(meta_all,
+#           "metadata_with_treatment_and_devstage_predictions.csv",
+#           row.names = FALSE)
+
+
+```
+
+
+
+
+**final model training and deployment to predict unknown samples with 100 PCs **
+
+```{r}
+# 2) Build PC matrix for ALL samples (must match meta row order used for PCA)
+X100_all <- as.data.frame(pca_res$x[, 1:100, drop = FALSE])
+stopifnot(nrow(X50_all) == nrow(meta_all))
+
+```
+
+
+
+```{r}
+# 3) Define known vs unknown (unknown = NA or empty string)
+known_idx   <- !is.na(meta_all[[label_col]]) & meta_all[[label_col]] != ""
+unknown_idx <-  is.na(meta_all[[label_col]]) | meta_all[[label_col]] == ""
+
+```
+
+
+
+```{r}
+#sanity checks
+cat("Known samples:", sum(known_idx), "\n")
+cat("Unknown samples:", sum(unknown_idx), "\n")
+cat("Total samples:", nrow(meta_all), "\n")
+
+```
+
+
+
+
+```{r}
+# 4) Train FINAL RF on ALL known samples
+X_train_all <- X100_all[known_idx, , drop = FALSE]
+y_train_all <- droplevels(factor(meta_all[[label_col]][known_idx]))
+
+table(y_train_all)  # must show >=2 classes (otherwise RF will error)
+
+set.seed(123)
+rf_final_dev <- randomForest(
+  x = X_train_all,
+  y = y_train_all,
+  ntree = 500,
+  classwt = 1 / table(y_train_all)
+)
+
+```
+
+
+
+
+```{r}
+# 5) Predict unknown samples (+ probabilities + confidence)
+X_unknown <- X100_all[unknown_idx, , drop = FALSE]
+
+prob_unknown <- predict(rf_final_dev, X_unknown, type = "prob")
+pred_unknown <- colnames(prob_unknown)[max.col(prob_unknown)]
+conf_unknown <- apply(prob_unknown, 1, max)
+
+
+```
+
+
+
+
+```{r}
+# 6) Quick sanity checks (distribution + confidence)
+length(pred_unknown)
+prop.table(table(pred_unknown))
+
+```
+
+
+
+
+```{r}
+#check if model is just predicting mostly one class for unknown samples (which could indicate low confidence or bias)
+table(pred_unknown)
+
+```
+
+
+
+```{r}
+## confidence summary (max prob per sample)
+# this gives an idea of how confident the model is in its predictions for the unknown samples (higher max prob = more confident)
+# in simple terms, this shows the distribution of the highest predicted probability across all unknown samples, which can indicate how strongly the model is leaning towards its predicted class for those samples 
+
+# # check confidence distribution quantiles, in simple terms, this shows the range of confidence levels for the model's predictions on the unknown samples, giving insight into how certain the model is across different samples (e.g., 10% of samples have max prob below 0.6, 50% below 0.8, etc.) 
+
+summary(conf_unknown)
+
+quantile(conf_unknown, c(0.1, 0.25, 0.5, 0.75, 0.9))
+
+```
+
+
+
+```{r}
+# # here we can also check the agreement of predictions across multiple runs to see if the model is stable in its predictions for the unknown samples (since we don't have true labels, this is a way to assess consistency)
+
+pred_list <- vector("list", 5)
+
+for (s in 1:5) {
+  set.seed(100 + s)
+
+  rf_tmp <- randomForest(
+    x = X_train_all,
+    y = y_train_all,
+    ntree = 500,
+    classwt = 1 / table(y_train_all)
+  )
+
+  pred_list[[s]] <- as.character(predict(rf_tmp, X_unknown))
+}
+
+agree_matrix <- do.call(cbind, pred_list)
+
+# agreement rate
+agree_rate <- mean(apply(agree_matrix, 1, function(x) length(unique(x)) == 1))
+agree_rate
+
+```
+
+
+```{r}
+```
+
+
+```{r}
 ```
 

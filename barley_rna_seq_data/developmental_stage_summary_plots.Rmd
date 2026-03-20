@@ -67,7 +67,7 @@ p_acc_stage <- ggplot(summary_stage, aes(x = PCs, group = 1)) +
   geom_point(aes(y = test_acc, shape = "Test"), size = 3) +
   ylim(0, 1) +
   labs(
-    title = "Random Forest performance vs number of PCs (Developmental stage)",
+    title = "Model performance over PCs for Developmental stage (Accuracy)",
     x = "Number of PCs used",
     y = "Accuracy",
     shape = "",
@@ -96,7 +96,7 @@ p_kappa_stage <- ggplot(summary_stage, aes(x = PCs, group = 1)) +
   geom_point(aes(y = test_kappa, shape = "Test"), size = 3) +
   ylim(0, 1) +
   labs(
-    title = "Random Forest performance vs number of PCs (Developmental stage)",
+    title = "Model performance over PCs for Developmental stage(Kappa)",
     x = "Number of PCs used",
     y = "Kappa",
     shape = "",
