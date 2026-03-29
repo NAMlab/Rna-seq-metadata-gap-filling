@@ -2569,8 +2569,148 @@ summary(meta_all$treatment_group_conf)
 ```
 
 
+
 ```{r}  
+#load file
+meta_all <- read.csv(
+  "metadata_with_all_predictions_filled.csv",
+  sep = ";",
+  stringsAsFactors = FALSE
+)
+
+```
+
+
+
+```{r}  
+colnames(meta_all)
+head(meta_all$sample_id)
+head(meta_all$tissue_filled)
+
 ```
 
 
 ```{r}  
+# match metadata rows to PCA row order
+meta_all2 <- meta_all[match(rownames(pca_df), meta_all$sample_id), ]
+
+```
+
+
+
+```{r}  
+# quick sanity checks
+nrow(meta_all2)
+sum(is.na(meta_all2$sample_id))
+
+```
+
+
+
+```{r}
+# combine
+plot_df <- cbind(pca_df, meta_all2)
+
+```
+
+
+
+
+```{r}
+# quick check of combined data frame
+#tissue_filled is the column in metadata that has the tissue labels (leaf, root, seed, etc.) that we want to use for coloring the PCA plot
+
+library(ggplot2)
+
+ggplot(plot_df, aes(x = PC1, y = PC2, color = tissue_filled)) +
+  geom_point(alpha = 1, size = 0.9) +
+  labs(
+    title = "PCA of Barley RNA-seq colored by Tissue",
+    x = "PC1",
+    y = "PC2",
+    color = "Tissue"
+  ) +
+  theme_minimal()
+
+```
+
+
+
+```{r}
+# check the distribution of tissue types in the metadata (to see how many samples we have for each tissue type, which can help interpret the PCA plot)
+
+table(plot_df$tissue_filled)
+
+```
+
+```{r}
+#check na
+sum(is.na(plot_df$tissue_filled))
+
+```
+
+
+```{r}
+#developmental stage PCA plot
+
+ggplot(plot_df, aes(x = PC1, y = PC2, color = developmental_stage_filled)) +
+  geom_point(alpha = 1, size = 0.9) +
+  labs(
+    title = "PCA of Barley RNA-seq colored by Developmental Stage",
+    x = "PC1",
+    y = "PC2",
+    color = "Developmental stage"
+  ) +
+  theme_minimal()
+
+```
+
+
+```{r}
+# check the distribution of developmental stages in the metadata (to see how many samples we have for each developmental stage, which can help interpret the PCA plot)
+
+table(plot_df$developmental_stage_filled)
+
+
+```
+
+
+```{r}
+# check na
+sum(is.na(plot_df$developmental_stage_filled))
+```
+
+
+```{r}
+#treatment PCA plot
+ggplot(plot_df, aes(x = PC1, y = PC2, color = treatment_group_filled)) +
+  geom_point(alpha = 1, size = 0.9) +
+  labs(
+    title = "PCA of Barley RNA-seq colored by Treatment",
+    x = "PC1",
+    y = "PC2",
+    color = "Treatment"
+  ) +
+  theme_minimal()
+
+```
+
+
+
+```{r}
+# check the distribution of treatment groups in the metadata (to see how many samples we have for each treatment group, which can help interpret the PCA plot)
+table(plot_df$treatment_group_filled)
+
+```
+
+
+```{r}
+# check na
+sum(is.na(plot_df$treatment_group_filled))
+
+```
+
+
+```{r}
+```
+
