@@ -546,7 +546,7 @@ table(y_train)
 
 ```{r}
 # train random forestlibrary(randomForest)
-
+library(randomForest)
 library(caret)
 
 set.seed(123)
@@ -1220,7 +1220,7 @@ p_acc <- ggplot(summary_compare, aes(x = split)) +
   geom_point(aes(y = test_acc, shape = "Test"), size = 3) +
   scale_y_continuous(limits = c(0, 1)) +
   labs(
-    title = "Treatment (PC1–100): SMART vs STUPID (Accuracy)",
+    title = "Treatment (PC1–100): SMART vs NAIVE (Accuracy)",
     x = "Split strategy",
     y = "Accuracy",
     shape = ""
@@ -1244,7 +1244,7 @@ p_kappa <- ggplot(summary_compare, aes(x = split)) +
   geom_point(aes(y = test_kappa, shape = "Test"), size = 3) +
   scale_y_continuous(limits = c(0, 1)) +
   labs(
-    title = "Treatment (PC1–100): SMART vs STUPID (Kappa)",
+    title = "Treatment (PC1–100): SMART vs NAIVE (Kappa)",
     x = "Split strategy",
     y = "Kappa",
     shape = ""
@@ -1935,30 +1935,16 @@ mlp_compare_df
 ```
 
 
-```{r}
-ggplot(mlp_compare_df, aes(x = Split)) +
-  geom_point(aes(y = Test_Accuracy, shape = "Test accuracy"), size = 4) +
-  geom_point(aes(y = CV_Mean_Accuracy, shape = "CV mean accuracy"), size = 4) +
-  geom_line(aes(y = Test_Accuracy, group = 1, linetype = "Test accuracy")) +
-  geom_line(aes(y = CV_Mean_Accuracy, group = 1, linetype = "CV mean accuracy")) +
-  labs(
-    title = "MLP (50 PCs): SMART vs STUPID split",
-    y = "Accuracy",
-    x = "Split strategy",
-    shape = "",
-    linetype = ""
-  ) +
-  theme_minimal()
-
-```
 
 
 ```{r}
+# Accuracy plot for MLP SMART vs Naive
+
 library(ggplot2)
 
 mlp_comp_df <- data.frame(
-  split = factor(c("SMART (study-aware)", "STUPID (sample-based)"),
-                 levels = c("SMART (study-aware)", "STUPID (sample-based)")),
+  split = factor(c("SMART (study-aware)", "Naive (sample-based)"),
+                 levels = c("SMART (study-aware)", "Naive (sample-based)")),
   cv_mean = c(0.511451, 0.8807659),
   cv_sd   = c(0.1993211, 0.02216319),
   test    = c(0.2576,    0.8990)
@@ -1972,7 +1958,7 @@ ggplot(mlp_comp_df, aes(x = split)) +
   scale_shape_manual(values = c("CV mean" = 16, "Test" = 17)) +
   coord_cartesian(ylim = c(0, 1)) +
   labs(
-    title = "MLP (50 PCs): SMART vs STUPID (Accuracy)",
+    title = "Treatment MLP (50 PCs): SMART vs NAIVE (Accuracy)",
     x = "Split strategy",
     y = "Accuracy",
     shape = ""
@@ -1983,6 +1969,28 @@ ggplot(mlp_comp_df, aes(x = split)) +
 
 
 ```{r}
+# Kappa plot for MLP SMART vs Naive
+mlp_comp_df_kappa <- data.frame(
+  split = factor(c("SMART (study-aware)", "NAIVE (sample-based)"),
+                 levels = c("SMART (study-aware)", "Naive (sample-based)")),
+  cv_mean = c(0.1727, 0.9167351),
+  cv_sd   = c(0.2202, 0.03280107),
+  test    = c(0.2337, 0.9167351)
+)
+ggplot(mlp_comp_df_kappa, aes(x = split)) +
+  geom_point(aes(y = cv_mean, shape = "CV mean"), size = 3) +
+  geom_errorbar(aes(ymin = cv_mean - cv_sd, ymax = cv_mean + cv_sd),
+                width = 0.15) +
+  geom_point(aes(y = test, shape = "Test"), size = 3) +
+  scale_shape_manual(values = c("CV mean" = 16, "Test" = 17)) +
+  labs(
+    title = " Treatment MLP (50 PCs): SMART vs NAIVE (Kappa)",
+    x = "Split strategy",
+    y = "Kappa",
+    shape = ""
+  ) +
+  theme_minimal()
+
 ```
 
 
@@ -2123,6 +2131,68 @@ ggplot(kap_df, aes(x = PCs, y = mean, group = Model, shape = Model, linetype = M
 
 
 ```
+
+
+
+```{r}
+# Accuracy plot only MLP over PCs
+ggplot(acc_df %>% filter(Model == "MLP"), aes(x = PCs, y = mean)) +
+geom_line() +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = mean - sd, ymax = mean + sd), width = 3) +
+  ylim(0, 1) +
+  
+  labs(title = "Treatment MLP Performance over PCs (Accuracy)",
+       x = "Number of PCs",
+       y = "CV Accuracy") +
+  theme_minimal()
+
+
+```
+
+
+```{r}
+# Kappa plot only MLP over PCs
+ggplot(kap_df %>% filter(Model == "MLP"), aes(x = PCs,
+y = mean)) +
+  geom_line() +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = mean - sd, ymax = mean + sd), width = 3) +
+  labs(title = "Treatment MLP Performance over PCs (Kappa)",
+       x = "Number of PCs",
+       y = "CV Kappa") +
+  theme_minimal()
+
+```
+
+```{r}
+# Accuracy plot only RF over PCs
+ggplot(acc_df %>% filter(Model == "RF"), aes(x = PCs, y = mean)) +
+  geom_line() +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = mean - sd, ymax = mean + sd), width = 3) +
+  ylim(0, 1) +
+  labs(title = "Treatment RF Performance over PCs (Accuracy)",
+       x = "Number of PCs",
+       y = "CV Accuracy") +
+  theme_minimal()
+
+```
+
+
+```{r}
+# Kappa plot only RF over PCs
+ggplot(kap_df %>% filter(Model == "RF"), aes(x = PCs, y = mean)) +
+  geom_line() +
+  geom_point(size = 3) +
+  geom_errorbar(aes(ymin = mean - sd, ymax = mean + sd), width = 3) +
+  labs(title = "Treatment RF Performance over PCs (Kappa)",
+       x = "Number of PCs",
+       y = "CV Kappa") +
+  theme_minimal()
+
+```
+
 
 
 **FINAL MODEL TRAINING and DEPLOYMENT**
@@ -2348,6 +2418,7 @@ mean(apply(agree_matrix, 1, function(x) length(unique(x)) == 1))
 
 
 #final modeland deployment for unknown samples with 50 PCs
+
 #(since 100 PCs had lower CV performance than 50 PCs, we can try the same final prediction approach with 50 PCs to see if it gives more confident predictions for the unknown samples)
 
 
